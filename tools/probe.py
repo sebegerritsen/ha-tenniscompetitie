@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""Fetch a MijnKNLTB page with your own account and print its visible text (or the HTML with --html).
+"""Fetch a MijnKNLTB page with your own account and print its visible text (or its HTML).
 
     export KNLTB_LOGIN=... KNLTB_PASSWORD=...
-    python3 tools/probe.py /                                   # after login: links to your own profile
+    python3 tools/probe.py /                         # after login: links to your own profile
     python3 tools/probe.py '/find/player?q=<name>'
     python3 tools/probe.py /player-profile/<guid>/Rating
     python3 tools/probe.py --html /player-profile/<guid>
 
 Accepts only the necessary cookies on the cookie wall. The session cookies are kept in
-~/.cache/knltb-tennis-probe.txt (mode 0600). See docs/api.md. Everything you fetch is personal data
-of real people: don't paste it into issues or commit it.
+~/.cache/tenniscompetitie-probe.txt (mode 0600). See docs/api.md. Everything you fetch is personal
+data of real people: don't paste it into issues or commit it.
 """
 
 from __future__ import annotations
 
+import contextlib
 import html
 import http.cookiejar
 import os
@@ -23,15 +24,13 @@ import urllib.parse
 import urllib.request
 
 BASE_URL = "https://mijnknltb.toernooi.nl"
-COOKIES = os.path.expanduser("~/.cache/knltb-tennis-probe.txt")
-USER_AGENT = "Mozilla/5.0 (compatible; knltb-tennis-probe)"
+COOKIES = os.path.expanduser("~/.cache/tenniscompetitie-probe.txt")
+USER_AGENT = "Mozilla/5.0 (compatible; tenniscompetitie-probe)"
 
 os.makedirs(os.path.dirname(COOKIES), exist_ok=True)
 jar = http.cookiejar.MozillaCookieJar(COOKIES)
-try:
+with contextlib.suppress(OSError, http.cookiejar.LoadError):
     jar.load(ignore_discard=True, ignore_expires=True)
-except (OSError, http.cookiejar.LoadError):
-    pass
 opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
 
 
@@ -55,7 +54,10 @@ def request(path: str, form: dict | None = None) -> tuple[str, str]:
 
 def login() -> None:
     # Cookie wall: necessary (1) and preference (2) cookies only.
-    request("/cookiewall/Save", {"ReturnUrl": "/", "SettingsOpen": "false", "CookiePurposes": ["1", "2"]})
+    request(
+        "/cookiewall/Save",
+        {"ReturnUrl": "/", "SettingsOpen": "false", "CookiePurposes": ["1", "2"]},
+    )
     _, body = request("/user/login?ReturnUrl=%2f")
     token = re.search(r'name="__RequestVerificationToken" type="hidden" value="([^"]+)"', body)
     if not token:

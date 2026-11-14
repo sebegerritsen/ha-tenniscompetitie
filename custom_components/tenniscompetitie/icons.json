@@ -1,0 +1,45 @@
+{
+  "entity": {
+    "calendar": {
+      "matches": {
+        "default": "mdi:tennis"
+      }
+    },
+    "sensor": {
+      "singles_rating": {
+        "default": "mdi:account"
+      },
+      "doubles_rating": {
+        "default": "mdi:account-multiple"
+      },
+      "padel_rating": {
+        "default": "mdi:racquetball"
+      },
+      "matches_won": {
+        "default": "mdi:trophy-outline"
+      },
+      "matches_lost": {
+        "default": "mdi:close-circle-outline"
+      },
+      "last_result": {
+        "default": "mdi:scoreboard",
+        "state": {
+          "won": "mdi:trophy",
+          "lost": "mdi:emoticon-sad-outline"
+        }
+      },
+      "last_match": {
+        "default": "mdi:calendar-check"
+      },
+      "next_match": {
+        "default": "mdi:tennis-ball"
+      },
+      "competition_position": {
+        "default": "mdi:podium"
+      },
+      "ranking": {
+        "default": "mdi:format-list-numbered"
+      }
+    }
+  }
+}

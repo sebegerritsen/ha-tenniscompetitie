@@ -1,0 +1,144 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Inloggen met je MijnKNLTB-account",
+        "description": "Het account dat je gebruikt op mijnknltb.toernooi.nl. Met het account van elk KNLTB-lid kun je ook andere spelers volgen. MijnKNLTB kent geen tokens, dus het wachtwoord wordt in Home Assistant bewaard om opnieuw in te loggen als de sessie verloopt (elke 7 dagen).",
+        "data": {
+          "login": "Loginnaam",
+          "password": "Wachtwoord"
+        },
+        "data_description": {
+          "login": "Je MijnKNLTB-loginnaam, bondsnummer of e-mailadres."
+        }
+      },
+      "own_profile": {
+        "title": "Je eigen profiel volgen?",
+        "description": "Dit account is van **{name}**. Andere spelers voeg je later toe met **Speler toevoegen**.",
+        "data": {
+          "follow_own": "Deze speler volgen"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Opnieuw inloggen",
+        "description": "MijnKNLTB accepteert het wachtwoord van {login} niet meer. Vul het (nieuwe) wachtwoord in.",
+        "data": {
+          "password": "Wachtwoord"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Verkeerde loginnaam of wachtwoord.",
+      "cannot_connect": "MijnKNLTB is niet bereikbaar. Probeer het later opnieuw."
+    },
+    "abort": {
+      "already_configured": "Dit account is al ingesteld.",
+      "reauth_successful": "Weer ingelogd."
+    }
+  },
+  "config_subentries": {
+    "player": {
+      "initiate_flow": {
+        "user": "Speler toevoegen"
+      },
+      "entry_type": "Speler",
+      "step": {
+        "user": {
+          "title": "Speler toevoegen",
+          "menu_options": {
+            "own": "Je eigen profiel",
+            "search": "Een speler zoeken op naam"
+          }
+        },
+        "search": {
+          "title": "Speler zoeken",
+          "data": {
+            "query": "Naam"
+          },
+          "data_description": {
+            "query": "De naam van de speler, of een deel ervan (minstens 3 tekens)."
+          }
+        },
+        "pick": {
+          "title": "Kies de speler",
+          "data": {
+            "profile_id": "Speler"
+          }
+        }
+      },
+      "error": {
+        "cannot_connect": "MijnKNLTB is niet bereikbaar. Probeer het later opnieuw.",
+        "no_players_found": "Geen speler gevonden (of ze worden al allemaal gevolgd). Probeer een andere spelling of een deel van de naam."
+      },
+      "abort": {
+        "already_configured": "Deze speler wordt al gevolgd.",
+        "account_not_loaded": "Het account werkt op dit moment niet (zie de status). Los dat eerst op.",
+        "no_own_profile": "Dit account heeft geen eigen spelersprofiel.",
+        "cannot_connect": "MijnKNLTB is niet bereikbaar. Probeer het later opnieuw."
+      }
+    }
+  },
+  "entity": {
+    "calendar": {
+      "matches": {
+        "name": "Wedstrijden"
+      }
+    },
+    "sensor": {
+      "singles_rating": {
+        "name": "Rating enkel"
+      },
+      "doubles_rating": {
+        "name": "Rating dubbel"
+      },
+      "padel_rating": {
+        "name": "Rating padel"
+      },
+      "matches_won": {
+        "name": "Gewonnen wedstrijden dit jaar"
+      },
+      "matches_lost": {
+        "name": "Verloren wedstrijden dit jaar"
+      },
+      "last_result": {
+        "name": "Laatste uitslag",
+        "state": {
+          "won": "Gewonnen",
+          "lost": "Verloren"
+        }
+      },
+      "last_match": {
+        "name": "Laatste wedstrijd"
+      },
+      "next_match": {
+        "name": "Volgende wedstrijd"
+      },
+      "competition_position": {
+        "name": "Positie in de competitie"
+      },
+      "ranking": {
+        "name": "Ranglijst"
+      }
+    }
+  },
+  "exceptions": {
+    "auth_failed": {
+      "message": "MijnKNLTB weigert de login; log opnieuw in."
+    },
+    "cannot_connect": {
+      "message": "MijnKNLTB is niet bereikbaar: {error}"
+    },
+    "unexpected_response": {
+      "message": "Onverwacht antwoord van MijnKNLTB: {error}"
+    },
+    "markup_changed": {
+      "message": "Een pagina van MijnKNLTB kon niet gelezen worden; de site is misschien veranderd ({error})."
+    }
+  },
+  "issues": {
+    "markup_changed": {
+      "title": "Tenniscompetitie kan MijnKNLTB niet lezen",
+      "description": "Sommige pagina's van MijnKNLTB ({pages}) hebben niet meer de opbouw die deze versie van de integratie leest, dus sommige sensoren zijn niet beschikbaar. Werk Tenniscompetitie bij in HACS; is er nog geen nieuwere versie, meld het dan in de issues."
+    }
+  }
+}

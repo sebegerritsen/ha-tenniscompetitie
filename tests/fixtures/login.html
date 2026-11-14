@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<!-- Anonymised test page: the markup of a MijnKNLTB page, every person, club and number made up. -->
+<html lang="nl">
+<head><meta charset="utf-8"><title>Inloggen - MijnKNLTB</title></head>
+<body>
+<div class="content">
+<div class="masthead" role="banner">
+  <div class="masthead__user"><a href="/user/login" class="masthead__item-link">Inloggen</a></div>
+</div>
+
+<div class="wrapper wrapper--padding">
+  <form action="/user" method="post" class="form">
+    <input name="__RequestVerificationToken" type="hidden" value="test-token-0123456789">
+    <input type="hidden" name="ReturnUrl" value="/">
+    <input type="text" name="Login" id="Login">
+    <input type="password" name="Password" id="Password">
+    <button type="submit" class="btn btn--primary">Inloggen</button>
+  </form>
+</div>
+</div>
+</body>
+</html>

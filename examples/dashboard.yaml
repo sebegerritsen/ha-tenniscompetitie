@@ -1,0 +1,99 @@
+# Example dashboard for Tenniscompetitie: one section per player.
+# Settings → Dashboards → Add dashboard → New dashboard from scratch, then ⋮ → Edit → ⋮ → Raw
+# configuration editor, and paste this. Replace `sam_de_vries` with your player's entity names
+# (sensor.<player>_singles_rating, …) and copy the section for every player you follow.
+# The rating graph fills from the day the integration was added (long-term statistics).
+views:
+- title: Tennis
+  path: tennis
+  icon: mdi:tennis
+  type: sections
+  max_columns: 3
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Sam de Vries
+      icon: mdi:tennis
+    - type: markdown
+      content: |-
+        | | Playing strength | Rating | Next season |
+        |:--|:-:|:-:|:-:|
+        {%- set ns = namespace(next=none) %}
+        {%- for label, key in [('Singles', 'singles'), ('Doubles', 'doubles'), ('Padel', 'padel')] %}
+        {%- set e = 'sensor.sam_de_vries_' ~ key ~ '_rating' %}
+        {%- if states(e) not in ['unknown', 'unavailable'] %}
+        | {{ label }} | **{{ state_attr(e, 'playing_strength') }}** | {{ '%.4f' | format(states(e) | float) | replace('.', '.') }} | {{ state_attr(e, 'next_playing_strength') or '–' }} {{ {'up': '▲', 'down': '▼'}.get(state_attr(e, 'trend'), '') }} |
+        {%- if state_attr(e, 'next_from') %}{% set ns.next = state_attr(e, 'next_from') %}{% endif %}
+        {%- endif %}
+        {%- endfor %}
+
+        {% if ns.next %}Next season applies from {{ as_datetime(ns.next).strftime('%-d-%-m-%Y') }}.{% endif %}
+    - type: tile
+      entity: sensor.sam_de_vries_matches_won_this_year
+      name: Won this year
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.sam_de_vries_matches_lost_this_year
+      name: Lost this year
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.sam_de_vries_last_result
+      name: Last result
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.sam_de_vries_ranking
+      name: Ranking
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.sam_de_vries_next_match
+      name: Next match
+    - type: heading
+      heading: Last match
+      heading_style: subtitle
+    - type: markdown
+      content: |-
+        {%- set e = 'sensor.sam_de_vries_last_match' %}
+        {%- if states(e) not in ['unknown', 'unavailable'] %}
+        **{{ as_datetime(states(e)).strftime('%-d-%-m-%Y') }} · {{ 'Won' if state_attr(e, 'result') == 'won' else 'Lost' }}** {{ state_attr(e, 'score') or '' }}
+        {{ state_attr(e, 'event') }}{% if state_attr(e, 'round') %} · {{ state_attr(e, 'round') }}{% endif %}{% if state_attr(e, 'draw') %} · {{ state_attr(e, 'draw') }}{% endif %}
+        {%- set partners = state_attr(e, 'partners') or [] %}
+        {{ ('With ' ~ partners | join(' / ') ~ ' against ') if partners else 'Against ' }}{{ (state_attr(e, 'opponents') or []) | join(' / ') }}{% if state_attr(e, 'opponent_team') %} ({{ state_attr(e, 'opponent_team') }}){% endif %}
+        {%- else %}No match known yet.{% endif %}
+    - type: heading
+      heading: Competition
+      heading_style: subtitle
+    - type: tile
+      entity: sensor.sam_de_vries_competition_position
+      name: Pool position
+    - type: markdown
+      content: |-
+        {%- set e = 'sensor.sam_de_vries_competition_position' %}
+        {%- if state_attr(e, 'competition') %}
+        **{{ state_attr(e, 'competition') }}**
+        {%- for team in state_attr(e, 'teams') %}
+        {{ team.team }}: **{{ team.position }}**{% if team.played %} after {{ team.played }} matches{% endif %} · {{ team.category }}{% if team.level %}, {{ team.level }}{% endif %}
+        {%- endfor %}
+        {%- if state_attr(e, 'wins') is not none %}
+        Own matches: {{ state_attr(e, 'wins') }}–{{ state_attr(e, 'losses') }}
+        {%- endif %}
+        {%- else %}No competition known.{% endif %}
+    - type: statistics-graph
+      title: Rating over time
+      entities:
+      - sensor.sam_de_vries_singles_rating
+      - sensor.sam_de_vries_doubles_rating
+      chart_type: line
+      period: week
+      days_to_show: 365
+      stat_types:
+      - mean
+    - type: calendar
+      title: Matches
+      entities:
+      - calendar.sam_de_vries_matches
+      initial_view: dayGridMonth

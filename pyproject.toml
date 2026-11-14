@@ -1,0 +1,29 @@
+[project]
+name = "ha-tenniscompetitie"
+version = "0.1.0"
+description = "Home Assistant integration for Dutch tennis (KNLTB): ratings, results and matches"
+license = "MIT"
+requires-python = ">=3.13"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "ASYNC", "PL", "S"]
+# RUF001/RUF002/RUF003: en dashes in scores ("5–1") and match titles are intended.
+ignore = ["PLR0913", "PLR2004", "S101", "RUF001", "RUF002", "RUF003", "PLR0912", "PLR0915"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S", "PLR"]
+"tools/*" = ["S"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["custom_components.tenniscompetitie"]
+force-sort-within-sections = true
+combine-as-imports = true
