@@ -1,0 +1,80 @@
+blueprint:
+  name: Tenniscompetitie – reminder before a match
+  description: >-
+    Reminds you a set time before a player's next match (the *Next match* sensor of the
+    Tenniscompetitie integration): the opponents or the team match, the venue with its
+    address, and for a team match which matches the player plays once the captain has
+    set the line-up. Add travel time to the lead time.
+  domain: automation
+  source_url: https://github.com/sebegerritsen/ha-tenniscompetitie/blob/main/blueprints/automation/tenniscompetitie/match_reminder.yaml
+  input:
+    next_match_entity:
+      name: Next match sensor
+      description: The player's *Next match* sensor.
+      selector:
+        entity:
+          filter:
+            - integration: tenniscompetitie
+              domain: sensor
+              device_class: timestamp
+    notify_device:
+      name: Phone
+      selector:
+        device:
+          filter:
+            - integration: mobile_app
+    lead_time:
+      name: How long before the match
+      default: 90
+      selector:
+        number:
+          min: 0
+          max: 600
+          step: 5
+          unit_of_measurement: min
+    language:
+      name: Language of the notification
+      default: nl
+      selector:
+        select:
+          options:
+            - label: Nederlands
+              value: nl
+            - label: English
+              value: en
+
+mode: single
+
+trigger_variables:
+  next_entity: !input next_match_entity
+  lead: !input lead_time
+
+triggers:
+  - trigger: template
+    value_template: >-
+      {% set start = as_datetime(states(next_entity)) %}
+      {{ start is not none
+         and now() >= start - timedelta(minutes=lead | int)
+         and now() < start }}
+
+variables:
+  lang: !input language
+
+actions:
+  - variables:
+      a: "{{ states[next_entity].attributes }}"
+      player: "{{ device_attr(device_id(next_entity), 'name') }}"
+      at: "{{ as_local(as_datetime(states(next_entity))).strftime('%H:%M') }}"
+      versus: >-
+        {% if a.kind == 'competition' %}{{ a.home }} – {{ a.away }}
+        {% else %}{{ (a.opponents or []) | join(' / ') }}{% endif %}
+      place: "{{ [a.venue, a.address] | select | join(', ') }}"
+  - device_id: !input notify_device
+    domain: mobile_app
+    type: notify
+    title: "{{ player }} · {{ at }}: {{ versus | trim }}"
+    message: >-
+      {{ [a.event, a.round, a.draw] | select | join(' · ') }}
+      {%- if a.partners %} · {{ 'met' if lang == 'nl' else 'with' }} {{ a.partners | join(' / ') }}{% endif %}
+      {%- if place %} · {{ place }}{% endif %}
+      {%- if a.plays %} · {{ 'speelt' if lang == 'nl' else 'plays' }} {{ a.plays | join(', ') }}{% endif %}

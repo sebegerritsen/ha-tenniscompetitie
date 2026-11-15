@@ -79,9 +79,31 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "match_today": {
+        "name": "Wedstrijd vandaag"
+      }
+    },
     "calendar": {
       "matches": {
         "name": "Wedstrijden"
+      }
+    },
+    "event": {
+      "match_update": {
+        "name": "Wedstrijd-update",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "result": "Uitslag",
+              "new_match": "Nieuwe wedstrijd",
+              "rescheduled": "Verplaatst",
+              "team_result": "Teamuitslag",
+              "strength": "Nieuwe speelsterkte",
+              "rating": "Rating veranderd"
+            }
+          }
+        }
       }
     },
     "sensor": {
@@ -136,12 +158,41 @@
     },
     "markup_changed": {
       "message": "Een pagina van MijnKNLTB kon niet gelezen worden; de site is misschien veranderd ({error})."
+    },
+    "unknown_device": {
+      "message": "Dat apparaat is geen speler van Tenniscompetitie."
     }
   },
   "issues": {
     "markup_changed": {
       "title": "Tenniscompetitie kan MijnKNLTB niet lezen",
       "description": "Sommige pagina's van MijnKNLTB ({pages}) hebben niet meer de opbouw die deze versie van de integratie leest, dus sommige sensoren zijn niet beschikbaar. Werk Tenniscompetitie bij in HACS; is er nog geen nieuwere versie, meld het dan in de issues."
+    }
+  },
+  "services": {
+    "get_matches": {
+      "name": "Wedstrijden opvragen",
+      "description": "Geeft de wedstrijden van een speler: de eigen partijen (toernooi en competitie, ook geplande) en de wedstrijden van zijn teams.",
+      "fields": {
+        "device_id": {
+          "name": "Speler",
+          "description": "De speler (apparaat) van Tenniscompetitie."
+        },
+        "upcoming_only": {
+          "name": "Alleen komende",
+          "description": "Alleen wedstrijden die nog niet gespeeld zijn."
+        }
+      }
+    },
+    "get_standings": {
+      "name": "Standen opvragen",
+      "description": "Geeft de poulestanden van de competitieteams van een speler.",
+      "fields": {
+        "device_id": {
+          "name": "Speler",
+          "description": "De speler (apparaat) van Tenniscompetitie."
+        }
+      }
     }
   }
 }

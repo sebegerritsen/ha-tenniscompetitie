@@ -13,7 +13,7 @@ from homeassistant.util import dt as dt_util
 from .const import TEAM_MATCH_DURATION, TOURNAMENT_MATCH_DURATION
 from .coordinator import KnltbConfigEntry, KnltbPlayerCoordinator, PlayerData, TeamSchedule
 from .entity import KnltbEntity
-from .models import Entry, Match, TeamMatch
+from .models import Entry, Match, TeamMatch, Venue
 
 PARALLEL_UPDATES = 0
 
@@ -33,7 +33,9 @@ def _join(*parts: str | None, sep: str = "\n") -> str | None:
     return text or None
 
 
-def team_match_event(team: TeamSchedule, match: TeamMatch) -> CalendarEvent | None:
+def team_match_event(
+    team: TeamSchedule, match: TeamMatch, venue: Venue | None = None
+) -> CalendarEvent | None:
     """Return a team match as an event: timed when the start is known, else all day."""
     summary = f"{match.home} – {match.away}"
     if match.home_score is not None and match.away_score is not None:
@@ -42,12 +44,14 @@ def team_match_event(team: TeamSchedule, match: TeamMatch) -> CalendarEvent | No
         team.competition.name, _join(team.category, team.level, sep=" – "), match.round
     )
     uid = match.path or f"{team.team}-{match.day}"
+    location = _join(venue.name, venue.address, sep=", ") if venue else None
     if match.start is not None:
         return CalendarEvent(
             start=match.start,
             end=match.start + TEAM_MATCH_DURATION,
             summary=summary,
             description=description,
+            location=location,
             uid=uid,
         )
     if match.day is not None:
@@ -56,6 +60,7 @@ def team_match_event(team: TeamSchedule, match: TeamMatch) -> CalendarEvent | No
             end=match.day + timedelta(days=1),
             summary=summary,
             description=description,
+            location=location,
             uid=uid,
         )
     return None
@@ -123,7 +128,7 @@ def player_events(data: PlayerData, today: date | None = None) -> list[CalendarE
     events = [
         event
         for team, match in data.team_matches()
-        if (event := team_match_event(team, match)) is not None
+        if (event := team_match_event(team, match, data.venue_of(match))) is not None
     ]
     matches = data.matches
     events += [

@@ -31,3 +31,7 @@ TOURNAMENT_MATCH_DURATION: Final = timedelta(hours=2)
 
 ATTRIBUTION: Final = "Data: KNLTB, MijnKNLTB (Tournament Software)"
 ISSUE_MARKUP_CHANGED: Final = "markup_changed"
+
+# The previous update (for change alerts) and the rating history, per player, in
+# .storage/tenniscompetitie.<entry id>.<subentry id>
+STORAGE_VERSION: Final = 1

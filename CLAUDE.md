@@ -46,6 +46,16 @@ Decided (Nov 2026):
   that run or start within 14 days, the player's page in the tournament (found by name on the event
   page, cached per tournament) → planned matches with times. Profiles show tournament matches only
   once played; `PlayerData.matches` merges both (one match counts once, the tournament page wins).
+- Current competitions also read each team's pool (standing) and the next team match's page (venue,
+  line-up), cached for hours (`_get_cached`). The captains' contact details on that page are never read.
+- Rating history: the current season's rated matches when their count changes, past seasons once in
+  a background task (`_read_seasons`), kept in `.storage/tenniscompetitie.<entry>.<subentry>` with the
+  previous update's snapshot (`changes.py`). `rating_series` chains the changes from the season's start
+  rating (shown ratings far off, as in mixed doubles, are ignored); `HISTORY_FORMAT` forces a re-read.
+  The rating sensors import it into the long-term statistics (`async_import_statistics`).
+- `changes.py` → `event.py` (Match update), `binary_sensor.py` (Match today), `services.py`
+  (`get_matches`, `get_standings`), blueprints in `blueprints/automation/tenniscompetitie` (tested by
+  running them, `tests/test_blueprints.py`).
 - `sensor.py`, `calendar.py`, `config_flow.py` (account + `PlayerSubentryFlow`), `diagnostics.py`
   (shape only: no names, member numbers or profile ids).
 

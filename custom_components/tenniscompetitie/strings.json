@@ -79,9 +79,31 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "match_today": {
+        "name": "Match today"
+      }
+    },
     "calendar": {
       "matches": {
         "name": "Matches"
+      }
+    },
+    "event": {
+      "match_update": {
+        "name": "Match update",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "result": "Result",
+              "new_match": "New match",
+              "rescheduled": "Rescheduled",
+              "team_result": "Team result",
+              "strength": "New playing strength",
+              "rating": "Rating changed"
+            }
+          }
+        }
       }
     },
     "sensor": {
@@ -136,12 +158,41 @@
     },
     "markup_changed": {
       "message": "A MijnKNLTB page could not be read; the site may have changed ({error})."
+    },
+    "unknown_device": {
+      "message": "That device is not a player of Tenniscompetitie."
     }
   },
   "issues": {
     "markup_changed": {
       "title": "Tenniscompetitie cannot read MijnKNLTB",
       "description": "Some MijnKNLTB pages ({pages}) no longer have the layout this version of the integration reads, so some sensors are unavailable. Update Tenniscompetitie in HACS; if there is no newer version yet, please report it in the issues."
+    }
+  },
+  "services": {
+    "get_matches": {
+      "name": "Get matches",
+      "description": "Returns a player's matches: their own (tournament and competition, planned ones included) and their teams' matches.",
+      "fields": {
+        "device_id": {
+          "name": "Player",
+          "description": "The player (device) of Tenniscompetitie."
+        },
+        "upcoming_only": {
+          "name": "Upcoming only",
+          "description": "Only matches that have not been played yet."
+        }
+      }
+    },
+    "get_standings": {
+      "name": "Get standings",
+      "description": "Returns the pool standings of the player's competition teams.",
+      "fields": {
+        "device_id": {
+          "name": "Player",
+          "description": "The player (device) of Tenniscompetitie."
+        }
+      }
     }
   }
 }

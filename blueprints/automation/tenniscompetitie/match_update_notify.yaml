@@ -1,0 +1,123 @@
+blueprint:
+  name: Tenniscompetitie – notify on match updates
+  description: >-
+    Sends a notification to a phone when a player has a result, a match is planned or
+    moved, the team has a final score, next season's playing strength is published, or
+    the rating changes. Uses the player's *Match update* entity of the Tenniscompetitie
+    integration.
+  domain: automation
+  source_url: https://github.com/sebegerritsen/ha-tenniscompetitie/blob/main/blueprints/automation/tenniscompetitie/match_update_notify.yaml
+  input:
+    update_entity:
+      name: Match update entity
+      description: The player's *Match update* entity (event).
+      selector:
+        entity:
+          filter:
+            - integration: tenniscompetitie
+              domain: event
+    notify_device:
+      name: Phone
+      description: The phone (Home Assistant app) to notify.
+      selector:
+        device:
+          filter:
+            - integration: mobile_app
+    event_types:
+      name: Updates to notify about
+      default: [result, new_match, rescheduled, team_result, strength]
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: Result of the player's match
+              value: result
+            - label: New match (planned in a tournament, or a team match coming up)
+              value: new_match
+            - label: Match moved to another time
+              value: rescheduled
+            - label: Final score of a team match
+              value: team_result
+            - label: Next season's playing strength published
+              value: strength
+            - label: Rating changed (weekly)
+              value: rating
+    language:
+      name: Language of the notification
+      default: nl
+      selector:
+        select:
+          options:
+            - label: Nederlands
+              value: nl
+            - label: English
+              value: en
+
+mode: queued
+max: 10
+
+triggers:
+  - trigger: state
+    entity_id: !input update_entity
+
+variables:
+  event_types: !input event_types
+  lang: !input language
+  player: "{{ device_attr(device_id(trigger.entity_id), 'name') if trigger else '' }}"
+  a: "{{ trigger.to_state.attributes if trigger.to_state else {} }}"
+  type: "{{ a.event_type | default('') }}"
+  days: >-
+    {{ ['ma', 'di', 'wo', 'do', 'vr', 'za', 'zo'] if lang == 'nl'
+       else ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] }}
+  start: >-
+    {% set d = as_local(as_datetime(a.start)) if a.start else none %}
+    {{ days[d.weekday()] ~ ' ' ~ d.strftime('%-d-%-m %H:%M') if d else '' }}
+  previous_start: >-
+    {% set d = as_local(as_datetime(a.previous_start)) if a.previous_start else none %}
+    {{ days[d.weekday()] ~ ' ' ~ d.strftime('%-d-%-m %H:%M') if d else '' }}
+  versus: >-
+    {% if a.kind == 'competition' and a.home %}{{ a.home }} – {{ a.away }}
+    {% else %}{{ (a.opponents or []) | join(' / ') }}{% endif %}
+  t: >-
+    {{ {'result': 'Uitslag', 'new_match': 'Nieuwe wedstrijd', 'rescheduled': 'Verplaatst',
+        'team_result': 'Teamuitslag', 'strength': 'Nieuwe speelsterkte', 'rating': 'Rating',
+        'won': 'gewonnen', 'lost': 'verloren', 'draw': 'gelijk', 'against': 'tegen',
+        'with': 'met', 'from': 'vanaf', 'was': 'was', 'singles': 'enkel', 'doubles': 'dubbel',
+        'padel': 'padel'} if lang == 'nl'
+       else {'result': 'Result', 'new_match': 'New match', 'rescheduled': 'Rescheduled',
+        'team_result': 'Team result', 'strength': 'New playing strength', 'rating': 'Rating',
+        'won': 'won', 'lost': 'lost', 'draw': 'drawn', 'against': 'against',
+        'with': 'with', 'from': 'from', 'was': 'was', 'singles': 'singles',
+        'doubles': 'doubles', 'padel': 'padel'} }}
+  title: >-
+    {{ player }} · {{ t[type] | default(type) }}
+    {%- if type in ['result', 'team_result'] and a.result %}: {{ t[a.result] | default(a.result) }}{% endif %}
+  message: >-
+    {% if type == 'result' %}{{ a.score or '' }} {{ t.against }} {{ versus | trim }}
+    {%- if a.partners %} ({{ t.with }} {{ a.partners | join(' / ') }}){% endif %}
+    · {{ [a.event, a.round, a.draw] | select | join(' · ') }}
+    {% elif type == 'team_result' %}{{ a.home }} {{ a.score }} {{ a.away }} · {{ a.event }}
+    {% elif type == 'new_match' %}{{ start }} · {{ versus | trim }} · {{ [a.event, a.round] | select | join(' · ') }}
+    {%- if a.venue %} · {{ a.venue }}{% endif %}
+    {% elif type == 'rescheduled' %}{{ start }} ({{ t.was }} {{ previous_start }}) · {{ versus | trim }}
+    {%- if a.venue %} · {{ a.venue }}{% endif %}
+    {% elif type == 'strength' %}{{ t[a.discipline] | default(a.discipline) | capitalize }}: {{ a.playing_strength }} → {{ a.next_playing_strength }}
+    {%- if a.next_from %} ({{ t['from'] }} {{ as_datetime(a.next_from).strftime('%-d-%-m-%Y') }}){% endif %}
+    {% elif type == 'rating' %}{{ t[a.discipline] | default(a.discipline) | capitalize }}: {{ a.previous_rating }} → {{ a.rating }}
+    {% endif %}
+
+conditions:
+  - condition: template
+    value_template: >-
+      {{ trigger.from_state is not none
+         and trigger.from_state.state != 'unavailable'
+         and trigger.to_state is not none
+         and trigger.to_state.state not in ['unknown', 'unavailable']
+         and type in event_types }}
+
+actions:
+  - device_id: !input notify_device
+    domain: mobile_app
+    type: notify
+    title: "{{ title | trim }}"
+    message: "{{ message | trim }}"

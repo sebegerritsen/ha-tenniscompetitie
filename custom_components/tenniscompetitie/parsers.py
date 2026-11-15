@@ -27,15 +27,22 @@ from .models import (
     PlayerRef,
     Profile,
     RankingEntry,
+    RatedMatch,
     Rating,
     RatingPage,
+    RatingSeason,
     Record,
     RecordType,
+    Rubber,
     SeasonRating,
+    SeasonSummary,
+    StandingRow,
     TeamMatch,
+    TeamMatchDetail,
     TeamPage,
     Tournament,
     Trend,
+    Venue,
     WinLoss,
 )
 
@@ -47,6 +54,7 @@ _NUMBER = re.compile(r"-?\d+(?:[.,]\d+)?")
 _WIN_LOSS = re.compile(r"(\d+)\s*[-/]\s*(\d+)")
 _DURATION = re.compile(r"^(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?$")
 _SPACES = re.compile(r"\s+")
+_RATING_CHANGE = re.compile(r"[-+−]?\d+[,.]\d{3,}")
 # A seeding after a name in a draw: "Sam de Vries [2]".
 _SEED = re.compile(r"\s*\[\d+\]\s*$")
 
@@ -493,43 +501,147 @@ def _tournaments(soup: BeautifulSoup, player: str | None = None) -> Iterable[Tou
         )
 
 
+def _rating_panels(container: Tag, padel: bool) -> Iterable[tuple[Discipline, Tag, dict[str, str]]]:
+    """Yield the discipline, panel and stats of each rating block (accordion)."""
+    for panel in container.select(".accordion"):
+        header_title = panel.select_one(".rating-header__title")
+        if header_title is None:
+            continue
+        discipline = Discipline.PADEL if padel else _discipline(_text(header_title))
+        if discipline is None:
+            continue
+        yield discipline, panel, _stats(panel.select_one(".rating-header__body") or panel)
+
+
+def _panel_strength(panel: Tag) -> int | None:
+    tag = panel.select_one(".rating-header__title .tag-duo")
+    return _int(_text(tag.select_one(".tag-duo__title"))) if tag else None
+
+
+def _panel_rating(panel: Tag) -> float | None:
+    """Return a block's current (or end) rating, without the change printed next to it."""
+    value = panel.select_one(".rating-header__stats .stats__value")
+    return _float(value.find(string=True, recursive=False)) if value else None
+
+
+def _panel_matches_path(panel: Tag) -> str | None:
+    form = panel.select_one('form[action*="RatingMatchList"]')
+    return str(form["action"]) if form and form.get("action") else None
+
+
 def parse_rating_page(html: str) -> RatingPage:
-    """Parse the Rating page: the selected (current) season per discipline."""
+    """Parse the Rating page: the selected (current) season per discipline, and the tabs."""
     soup = _soup(html)
     _header(soup, "rating")
     ratings: dict[Discipline, SeasonRating] = {}
+    matches_paths: dict[Discipline, str] = {}
+    seasons: list[RatingSeason] = []
     season = None
     for card in soup.select(".module--card"):
         title = _text(card.select_one(".module__title-main"))
         if "DSS" not in title.upper():
             continue
         padel = "padel" in title.casefold()
-        active = card.select_one(".page-nav__item--active")
-        if season is None and active is not None:
-            season = _text(active) or None
+        for tab in card.select(".page-nav__item"):
+            link = tab.select_one("a[data-href]")
+            if link is None or not (label := _text(link)):
+                continue
+            active = _has_class(tab, "page-nav__item--active")
+            seasons.append(
+                RatingSeason(
+                    season=label,
+                    padel=padel,
+                    summary_path=None if active else str(link["data-href"]),
+                    active=active,
+                )
+            )
+            if active and season is None:
+                season = label
         container = card.select_one(".module-container[id]") or card
-        for panel in container.select(".accordion"):
-            header_title = panel.select_one(".rating-header__title")
-            if header_title is None:
+        for discipline, panel, stats in _rating_panels(container, padel):
+            if discipline in ratings:
                 continue
-            discipline = Discipline.PADEL if padel else _discipline(_text(header_title))
-            if discipline is None or discipline in ratings:
-                continue
-            strength_tag = header_title.select_one(".tag-duo")
-            stats = _stats(panel.select_one(".rating-header__body") or panel)
-            current = panel.select_one(".rating-header__stats .stats__value")
             ratings[discipline] = SeasonRating(
                 discipline=discipline,
-                strength=_int(_text(strength_tag.select_one(".tag-duo__title")))
-                if strength_tag
-                else None,
+                strength=_panel_strength(panel),
                 start_rating=_float(stats.get("startrating")),
                 matches=_int(stats.get("wedstrijden") or stats.get("matches")),
-                rating=_float(current.find(string=True, recursive=False)) if current else None,
+                rating=_panel_rating(panel),
             )
+            if (path := _panel_matches_path(panel)) is not None:
+                matches_paths[discipline] = path
     if not ratings:
         raise KnltbParseError("rating", "no DSS ratings")
-    return RatingPage(season=season, ratings=ratings)
+    return RatingPage(
+        season=season, ratings=ratings, seasons=tuple(seasons), matches_paths=matches_paths
+    )
+
+
+def parse_rating_summary(html: str, season: str, *, padel: bool = False) -> list[SeasonSummary]:
+    """Parse a past season's summary (loaded on its own): per discipline start and end."""
+    summaries = []
+    for discipline, panel, stats in _rating_panels(_soup(html), padel):
+        summaries.append(
+            SeasonSummary(
+                season=season,
+                discipline=discipline,
+                strength=_panel_strength(panel),
+                start_rating=_float(stats.get("startrating")),
+                end_rating=_panel_rating(panel),
+                matches=_int(stats.get("wedstrijden") or stats.get("matches")),
+                matches_path=_panel_matches_path(panel),
+            )
+        )
+    return summaries
+
+
+def parse_rated_matches(html: str, player: str | None = None) -> list[RatedMatch]:
+    """Parse a season's list of rated matches (loaded on its own), oldest first.
+
+    Each match shows the players' ratings before it (in brackets after the names) and the
+    change it made to the followed player's rating. The player's own rating is the one
+    after their name in the row with the result tag (in doubles the partner's is there
+    too). Values outside the DSS scale (seasons before 2021 show other numbers) are left
+    out; see `rating_series` for turning the list into the rating over time.
+    """
+    matches = []
+    for node in _soup(html).select("div.match"):
+        row = next((r for r in node.select(".match__row") if r.select_one(".match__status")), None)
+        change_tag = node.select_one(".match__header-aside .tag")
+        day = next(
+            (
+                found
+                for item in node.select(".match__footer-list-item")
+                if (found := _date(_text(item))) is not None
+            ),
+            None,
+        )
+        if row is None or change_tag is None or day is None:
+            continue
+        values = row.select(".match__row-title-value-content")
+        own = values[0] if len(values) == 1 else None
+        if player:
+            own = next((v for v in values if same_person(_text(v.find("a")), player)), own)
+        if own is None:
+            continue
+        before = _float(_text(own.select_one(".match__row-title-aside")).strip("()"))
+        # A rating change has four decimals ("-0,1231"); some matches show a whole number
+        # there instead, which is something else.
+        change_text = _text(change_tag)
+        change = _float(change_text) if _RATING_CHANGE.fullmatch(change_text) else None
+        if before is None or change is None:
+            continue
+        rated = RatedMatch(
+            day=day,
+            rating_before=before,
+            change=change,
+            won=_result_tag(row.select_one(".match__status")),
+        )
+        # In mixed doubles the rating shown includes the mixed correction (+1).
+        if 1 <= rated.rating_before <= 11 and abs(change) < 1:
+            matches.append(rated)
+    matches.reverse()  # the site lists the newest first
+    return matches
 
 
 def _stats(node: Tag) -> dict[str, str]:
@@ -576,6 +688,7 @@ def parse_competitions(html: str) -> list[Competition]:
                     team_path=str(team_link["href"]),
                     position=_int(stats.get("stand") or stats.get("standing")),
                     played=_int(stats.get("gespeeld") or stats.get("gs") or stats.get("played")),
+                    draw_path=str(division["href"]) if division and division.get("href") else None,
                 )
             )
         player_link = card.select_one('a[href*="/player/"]')
@@ -762,3 +875,164 @@ def parse_tournament_matches(html: str, tournament: str, player: str | None) -> 
         ) is not None:
             matches.append(match)
     return matches
+
+
+def parse_draw_page(html: str) -> list[StandingRow]:
+    """Parse a competition pool's page (`/league/<id>/draw/<n>`): the standing."""
+    soup = _soup(html)
+    table = next(
+        (t for t in soup.select("table") if t.select_one(".standing-status") is not None), None
+    )
+    if table is None:
+        if soup.select_one(".page-head .media__title") is None:
+            raise KnltbParseError("pool", "no pool page")
+        return []
+    columns = []
+    for th in table.select("thead th"):
+        label = th.select_one("[title]")
+        columns.append(str(label.get("title")).casefold() if label else "")
+    rows = []
+    for tr in table.select("tbody tr"):
+        cells = tr.find_all(["th", "td"], recursive=False)
+        values = {column: cell for column, cell in zip(columns, cells, strict=False) if column}
+        team = tr.select_one('a[href*="/team/"]')
+        if team is None:
+            continue
+
+        def number(*names: str, values: dict[str, Tag] = values) -> int | None:
+            return next((_int(_text(values[n])) for n in names if n in values), None)
+
+        def text(*names: str, values: dict[str, Tag] = values) -> str | None:
+            return next((_text(values[n]) or None for n in names if n in values), None)
+
+        form = tuple(
+            None if _text(tag).upper() in ("G", "D") else _result_tag(tag)
+            for tag in tr.select(".standing-form .match__status")
+        )
+        rows.append(
+            StandingRow(
+                position=_int(_text(tr.select_one(".standing-status"))),
+                team=_text(team),
+                played=number("gespeeld", "played"),
+                won=number("winst", "won"),
+                drawn=number("gelijk", "drawn"),
+                lost=number("verloren", "lost"),
+                points=number("punten", "points"),
+                matches=text("wedstrijden", "matches"),
+                sets=text("sets"),
+                games=text("games"),
+                form=form,
+            )
+        )
+    return rows
+
+
+def _venue(soup: BeautifulSoup) -> Venue | None:
+    """Read the 'Speellocatie' block of a team match page."""
+    card = next(
+        (
+            card
+            for card in soup.select(".module--card")
+            if card.select_one(".h-card, .p-street-address, .p-locality") is not None
+        ),
+        None,
+    )
+    if card is None:
+        return None
+    name = _text(card.select_one(".media__title .nav-link__value"))
+    surface = next(
+        (
+            _text(tag)
+            for tag in card.select(".tag")
+            if not _has_class(tag, "tag--placeholder") and _text(tag)
+        ),
+        None,
+    )
+    latitude = longitude = None
+    if (route := card.select_one('a[href*="lat="]')) is not None:
+        query = parse_qs(urlsplit(str(route["href"])).query)
+        latitude = _float((query.get("lat") or [""])[0])
+        longitude = _float((query.get("lng") or [""])[0])
+    return Venue(
+        name=name or "",
+        street=_text(card.select_one(".p-street-address")) or None,
+        postal_code=_text(card.select_one(".p-postal-code")) or None,
+        city=_text(card.select_one(".p-locality")) or None,
+        surface=surface,
+        latitude=latitude,
+        longitude=longitude,
+    )
+
+
+def parse_team_match_page(html: str) -> TeamMatchDetail:
+    """Parse a team match's page (`/league/<id>/team-match/<n>`): start, venue, line-up.
+
+    The captains' phone numbers and email addresses on that page are left alone.
+    """
+    soup = _soup(html)
+    header = soup.select_one(".team-match-header") or soup
+    home = header.select_one(".team-match__name.is-team-1")
+    away = header.select_one(".team-match__name.is-team-2")
+    if home is None or away is None:
+        raise KnltbParseError("team match", "no teams")
+    rubbers = []
+    for node in soup.select(".match-group div.match"):
+        rows = node.select(".match__row")
+        code = _text(node.select_one(".match__header-title-item"))
+        if len(rows) != 2 or not code:
+            continue
+
+        def players(row: Tag) -> tuple[str, ...]:
+            return tuple(
+                name
+                for value in row.select(".match__row-title-value-content a")
+                if (name := _text(value))
+            )
+
+        home_won = None
+        if _has_class(rows[0], "has-won"):
+            home_won = True
+        elif _has_class(rows[1], "has-won"):
+            home_won = False
+        rubbers.append(
+            Rubber(code=code, home=players(rows[0]), away=players(rows[1]), home_won=home_won)
+        )
+    return TeamMatchDetail(
+        start=_time_element(header.find("time")),
+        home=str(home.get("title") or "") or _text(home),
+        away=str(away.get("title") or "") or _text(away),
+        venue=_venue(soup),
+        rubbers=tuple(rubbers),
+    )
+
+
+def parse_event_links(html: str) -> dict[str, str]:
+    """Parse a tournament's events page (`/sport/events.aspx?id=`): {event name: path}."""
+    links = {}
+    for link in _soup(html).select('a[href*="event.aspx"]'):
+        href = str(link["href"])
+        if (name := _text(link)) and "event=" in href:
+            links.setdefault(name_key(name), href if href.startswith("/") else f"/sport/{href}")
+    return links
+
+
+# A rating shown before a match that differs more than this from the running rating is
+# not the player's plain rating (e.g. mixed doubles shows it with a +1 correction).
+SERIES_TOLERANCE = 0.5
+
+
+def rating_series(rated: list[RatedMatch], start: float | None) -> list[tuple[date, float]]:
+    """Return the rating after each rated match, from the season's start rating.
+
+    The changes are added up from the start; the rating shown before a match corrects
+    small differences, but is ignored when it is far off.
+    """
+    series: list[tuple[date, float]] = []
+    running = start
+    for match in rated:
+        before = match.rating_before
+        if running is not None and abs(before - running) > SERIES_TOLERANCE:
+            before = running
+        running = round(before + match.change, 4)
+        series.append((match.day, running))
+    return series

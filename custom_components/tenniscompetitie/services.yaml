@@ -1,0 +1,18 @@
+get_matches:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: tenniscompetitie
+    upcoming_only:
+      default: false
+      selector:
+        boolean:
+get_standings:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: tenniscompetitie

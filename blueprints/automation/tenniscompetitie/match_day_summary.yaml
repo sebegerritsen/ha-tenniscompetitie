@@ -1,0 +1,75 @@
+blueprint:
+  name: Tenniscompetitie – match day summary
+  description: >-
+    At a set time on days when a player has a match (the *Match today* sensor of the
+    Tenniscompetitie integration), sends today's matches: times, opponents or teams and
+    venues.
+  domain: automation
+  source_url: https://github.com/sebegerritsen/ha-tenniscompetitie/blob/main/blueprints/automation/tenniscompetitie/match_day_summary.yaml
+  input:
+    match_today_entity:
+      name: Match today sensor
+      description: The player's *Match today* sensor.
+      selector:
+        entity:
+          filter:
+            - integration: tenniscompetitie
+              domain: binary_sensor
+    notify_device:
+      name: Phone
+      selector:
+        device:
+          filter:
+            - integration: mobile_app
+    time:
+      name: Time of the summary
+      default: "08:00:00"
+      selector:
+        time:
+    language:
+      name: Language of the notification
+      default: nl
+      selector:
+        select:
+          options:
+            - label: Nederlands
+              value: nl
+            - label: English
+              value: en
+
+mode: single
+
+triggers:
+  - trigger: time
+    at: !input time
+
+variables:
+  today_entity: !input match_today_entity
+  lang: !input language
+
+conditions:
+  - condition: template
+    value_template: "{{ is_state(today_entity, 'on') }}"
+
+actions:
+  - action: tenniscompetitie.get_matches
+    data:
+      device_id: "{{ device_id(today_entity) }}"
+      upcoming_only: true
+    response_variable: found
+  - variables:
+      player: "{{ device_attr(device_id(today_entity), 'name') }}"
+      lines: >-
+        {% set today = now().date() | string %}
+        {% set ns = namespace(lines=[]) %}
+        {% for m in found.matches if (m.start or m.day or '')[:10] == today %}
+          {% set at = as_local(as_datetime(m.start)).strftime('%H:%M') if m.start else '' %}
+          {% set versus = (m.home ~ ' – ' ~ m.away) if m.kind == 'competition' else (m.opponents or []) | join(' / ') %}
+          {% set ns.lines = ns.lines + [[at, versus, m.venue] | select | join(' · ')] %}
+        {% endfor %}
+        {{ ns.lines | join('\n') }}
+  - device_id: !input notify_device
+    domain: mobile_app
+    type: notify
+    title: "{{ player }} · {{ 'vandaag tennis' if lang == 'nl' else 'tennis today' }}"
+    message: "{{ lines if lines | trim else ('Wedstrijd vandaag' if lang == 'nl' else 'Match today') }}"

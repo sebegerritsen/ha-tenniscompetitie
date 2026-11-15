@@ -50,6 +50,19 @@ def _summary(data: PlayerData | None) -> dict[str, Any] | None:
         "entered_tournament_matches_planned": sum(
             1 for m in data.tournament_matches if m.won is None
         ),
+        "rating_history_points": {d.value: len(p) for d, p in data.rating_history.items()},
+        "seasons": len(data.seasons),
+        "standings": [len(team.standing) for team in data.teams],
+        "next_team_match_detail": [
+            None
+            if team.next_detail is None
+            else {
+                "venue_found": team.next_detail.venue is not None,
+                "rubbers": len(team.next_detail.rubbers),
+            }
+            for team in data.teams
+        ],
+        "changes_last_update": [change.type.value for change in data.changes],
         "parse_failures": sorted(data.parse_failures),
     }
 

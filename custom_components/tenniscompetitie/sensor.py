@@ -4,23 +4,31 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from typing import Any
 
+from homeassistant.components.recorder import DOMAIN as RECORDER_DOMAIN
+from homeassistant.components.recorder.models import (
+    StatisticData,
+    StatisticMeanType,
+    StatisticMetaData,
+)
+from homeassistant.components.recorder.statistics import async_import_statistics
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.util import dt as dt_util
 
-from .coordinator import KnltbConfigEntry, KnltbPlayerCoordinator, PlayerData
+from .coordinator import KnltbConfigEntry, KnltbPlayerCoordinator, PlayerData, TeamSchedule
 from .entity import KnltbEntity
-from .models import NL_TZ, Discipline, Match, Record, RecordType
+from .models import NL_TZ, Discipline, Match, Record, RecordType, TeamMatch, Venue
+from .parsers import same_person
 
 PARALLEL_UPDATES = 0
 
@@ -45,6 +53,8 @@ class KnltbSensorDescription(SensorEntityDescription):
     attrs_fn: Callable[[PlayerData, datetime], dict[str, Any] | None] = lambda _data, _now: None
     # Whether to create the sensor at all (e.g. padel only for padel players).
     exists_fn: Callable[[PlayerData], bool] = lambda _data: True
+    # The rating history to import into the long-term statistics (rating sensors).
+    history: Discipline | None = None
 
 
 def _rating_value(discipline: Discipline) -> Callable[[PlayerData, datetime], float | None]:
@@ -67,6 +77,17 @@ def _rating_attrs(discipline: Discipline) -> Callable[[PlayerData, datetime], di
             "season": data.rating_page.season if data.rating_page else None,
             "start_rating": season.start_rating if season else None,
             "rated_matches": season.matches if season else None,
+            "seasons": [
+                {
+                    "season": summary.season,
+                    "playing_strength": summary.strength,
+                    "start_rating": summary.start_rating,
+                    "end_rating": summary.end_rating,
+                    "matches": summary.matches,
+                }
+                for summary in sorted(data.seasons, key=lambda s: s.season, reverse=True)
+                if summary.discipline is discipline
+            ],
         }
 
     return attrs
@@ -94,9 +115,66 @@ def _win_loss_attrs(wins: bool) -> Callable[[PlayerData, datetime], dict[str, An
     return attrs
 
 
-def _match_attrs(match: Match | None) -> dict[str, Any] | None:
-    if match is None:
-        return None
+def _venue_attrs(venue: Venue | None) -> dict[str, Any]:
+    if venue is None:
+        return {"venue": None}
+    return {
+        "venue": venue.name,
+        "address": venue.address,
+        "surface": venue.surface,
+        "latitude": venue.latitude,
+        "longitude": venue.longitude,
+    }
+
+
+def team_match_attributes(
+    data: PlayerData, team: str, competition: str | None, match: TeamMatch
+) -> dict[str, Any]:
+    """Return the details of a team match of one of the player's teams."""
+    own_home = same_person(match.home, team)
+    result = None
+    if match.won is not None:
+        result = "won" if match.won else "lost"
+    elif match.home_score is not None and match.home_score == match.away_score:
+        result = "draw"
+    attributes: dict[str, Any] = {
+        "kind": "competition",
+        "event": competition,
+        "round": match.round,
+        "team": team,
+        "home": match.home,
+        "away": match.away,
+        "home_away": "home" if own_home else "away",
+        "start": _iso(match.start),
+        "score": f"{match.home_score}–{match.away_score}"
+        if match.home_score is not None and match.away_score is not None
+        else None,
+        "result": result,
+    }
+    attributes.update(_venue_attrs(data.venue_of(match)))
+    return attributes
+
+
+def _line_up(data: PlayerData, schedule: TeamSchedule, match: TeamMatch) -> dict[str, Any]:
+    """Return the team's line-up for a match, once the captain has set it."""
+    detail = schedule.next_detail
+    if detail is None or match.start is None or detail.start != match.start:
+        return {}
+    own_home = same_person(detail.home, schedule.team)
+    name = data.profile.name
+    line_up = []
+    plays = []
+    for rubber in detail.rubbers:
+        own = rubber.home if own_home else rubber.away
+        other = rubber.away if own_home else rubber.home
+        line_up.append({"match": rubber.code, "players": list(own), "opponents": list(other)})
+        if any(same_person(player, name) for player in own):
+            plays.append(rubber.code)
+    return {"line_up": line_up, "plays": plays} if line_up else {}
+
+
+def match_attributes(match: Match) -> dict[str, Any]:
+    """Return the details of an individual match of the player."""
     return {
         "kind": match.kind,
         "event": match.event,
@@ -111,7 +189,12 @@ def _match_attrs(match: Match | None) -> dict[str, Any] | None:
         "venue": match.venue,
         "duration": match.duration,
         "start": _iso(match.start),
+        "day": _iso(match.day),
     }
+
+
+def _match_attrs(match: Match | None) -> dict[str, Any] | None:
+    return match_attributes(match) if match is not None else None
 
 
 def _last_match(data: PlayerData, now: datetime) -> Match | None:
@@ -124,21 +207,11 @@ def _next_match(data: PlayerData, now: datetime) -> tuple[datetime, dict[str, An
     if (found := data.next_team_match(now)) is not None:
         team, match = found
         assert match.start is not None
-        candidates.append(
-            (
-                match.start,
-                {
-                    "kind": "competition",
-                    "event": team.competition.name,
-                    "round": match.round,
-                    "team": team.team,
-                    "home": match.home,
-                    "away": match.away,
-                    "category": team.category,
-                    "level": team.level,
-                },
-            )
+        attributes = team_match_attributes(data, team.team, team.competition.name, match)
+        attributes.update(
+            {"category": team.category, "level": team.level, **_line_up(data, team, match)}
         )
+        candidates.append((match.start, attributes))
     for match in data.matches:
         if match.kind == "tournament" and match.start and match.start >= now and match.won is None:
             candidates.append((match.start, {**(_match_attrs(match) or {})}))
@@ -168,6 +241,7 @@ def _competition_attrs(data: PlayerData, _now: datetime) -> dict[str, Any] | Non
         "level": first.level if first else None,
         "played": first.played if first else None,
         "points": page.points if page else None,
+        "standing": _standing(data, competition.name, first.team) if first else [],
         "teams": [
             {
                 "team": team.team,
@@ -175,12 +249,41 @@ def _competition_attrs(data: PlayerData, _now: datetime) -> dict[str, Any] | Non
                 "level": team.level,
                 "position": team.position,
                 "played": team.played,
+                "standing": _standing(data, competition.name, team.team),
             }
             for team in competition.teams
         ],
         "wins": competition.win_loss.wins if competition.win_loss else None,
         "losses": competition.win_loss.losses if competition.win_loss else None,
     }
+
+
+def standing_rows(schedule: TeamSchedule) -> list[dict[str, Any]]:
+    """Return a team's pool standing as a list of rows."""
+    return [
+        {
+            "position": row.position,
+            "team": row.team,
+            "played": row.played,
+            "won": row.won,
+            "drawn": row.drawn,
+            "lost": row.lost,
+            "points": row.points,
+            "matches": row.matches,
+            "sets": row.sets,
+            "games": row.games,
+            "form": [None if won is None else ("won" if won else "lost") for won in row.form],
+            "own_team": same_person(row.team, schedule.team),
+        }
+        for row in schedule.standing
+    ]
+
+
+def _standing(data: PlayerData, competition: str, team: str) -> list[dict[str, Any]]:
+    schedule = next(
+        (t for t in data.teams if t.competition.name == competition and t.team == team), None
+    )
+    return standing_rows(schedule) if schedule else []
 
 
 def _competition_position(data: PlayerData, _now: datetime) -> int | None:
@@ -239,6 +342,7 @@ def _rating_sensor(discipline: Discipline, **kwargs: Any) -> KnltbSensorDescript
         suggested_display_precision=4,
         value_fn=_rating_value(discipline),
         attrs_fn=_rating_attrs(discipline),
+        history=discipline,
         **kwargs,
     )
 
@@ -336,10 +440,28 @@ async def async_setup_entry(
         )
 
 
+def history_rows(
+    points: list[tuple[date, float]], before: datetime
+) -> list[tuple[datetime, float]]:
+    """Return rated matches as hourly statistics rows: noon on the day, an hour per match."""
+    rows: dict[datetime, float] = {}
+    per_day: dict[date, int] = {}
+    for day, value in sorted(points, key=lambda point: point[0]):
+        index = per_day.get(day, 0)
+        per_day[day] = index + 1
+        start = datetime.combine(day, time(12), tzinfo=NL_TZ) + timedelta(hours=min(index, 11))
+        if start < before:
+            rows[start] = value
+    return sorted(rows.items())
+
+
 class KnltbSensor(KnltbEntity, SensorEntity):
     """A sensor of a player."""
 
     entity_description: KnltbSensorDescription
+    _unrecorded_attributes = frozenset(
+        {"seasons", "teams", "standing", "entries", "line_up", "other_rankings", "last_five"}
+    )
 
     def __init__(
         self, coordinator: KnltbPlayerCoordinator, description: KnltbSensorDescription
@@ -347,6 +469,51 @@ class KnltbSensor(KnltbEntity, SensorEntity):
         """Initialize the sensor."""
         super().__init__(coordinator, description.key)
         self.entity_description = description
+        self._imported: list[tuple[datetime, float]] = []
+
+    async def async_added_to_hass(self) -> None:
+        """Fill the long-term statistics with the rating history."""
+        await super().async_added_to_hass()
+        self._import_history()
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self._import_history()
+        super()._handle_coordinator_update()
+
+    @callback
+    def _import_history(self) -> None:
+        """Import the rating after each rated match into the long-term statistics.
+
+        The graph then shows the past seasons too, not only the time since the
+        integration was added. Rows of the last hour are left to the recorder.
+        """
+        discipline = self.entity_description.history
+        if discipline is None or "recorder" not in self.hass.config.components:
+            return
+        points = history_rows(
+            self.coordinator.data.rating_history.get(discipline, []),
+            dt_util.utcnow() - timedelta(hours=1),
+        )
+        if not points or points == self._imported:
+            return
+        self._imported = points
+        async_import_statistics(
+            self.hass,
+            StatisticMetaData(
+                mean_type=StatisticMeanType.ARITHMETIC,
+                has_sum=False,
+                name=None,
+                source=RECORDER_DOMAIN,
+                statistic_id=self.entity_id,
+                unit_class=None,
+                unit_of_measurement=None,
+            ),
+            [
+                StatisticData(start=dt_util.as_utc(start), mean=value, min=value, max=value)
+                for start, value in points
+            ],
+        )
 
     @property
     def native_value(self) -> StateType | date | datetime:

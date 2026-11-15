@@ -1,8 +1,21 @@
 {
   "entity": {
+    "binary_sensor": {
+      "match_today": {
+        "default": "mdi:tennis",
+        "state": {
+          "off": "mdi:calendar-blank-outline"
+        }
+      }
+    },
     "calendar": {
       "matches": {
         "default": "mdi:tennis"
+      }
+    },
+    "event": {
+      "match_update": {
+        "default": "mdi:bell-ring-outline"
       }
     },
     "sensor": {
@@ -43,6 +56,14 @@
       "tournament_entries": {
         "default": "mdi:clipboard-list-outline"
       }
+    }
+  },
+  "services": {
+    "get_matches": {
+      "service": "mdi:tennis-ball"
+    },
+    "get_standings": {
+      "service": "mdi:podium"
     }
   }
 }

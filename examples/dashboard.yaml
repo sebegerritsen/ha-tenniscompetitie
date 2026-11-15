@@ -30,6 +30,19 @@ views:
         {%- endfor %}
 
         {% if ns.next %}Next season applies from {{ as_datetime(ns.next).strftime('%-d-%-m-%Y') }}.{% endif %}
+    - type: heading
+      heading: Seasons
+      heading_style: subtitle
+    - type: markdown
+      content: |-
+        | Season | Singles | Doubles |
+        |:--|:-:|:-:|
+        {%- set s1 = state_attr('sensor.sam_de_vries_singles_rating', 'seasons') or [] %}
+        {%- set s2 = state_attr('sensor.sam_de_vries_doubles_rating', 'seasons') or [] %}
+        {%- for s in s1[:6] %}
+        {%- set d = s2 | selectattr('season', 'eq', s.season) | first %}
+        | {{ s.season | replace('Seizoen ', '') }} | {% if s.matches %}{{ s.playing_strength }} · {{ '%.2f' | format(s.end_rating) | replace('.', '.') }}{% else %}–{% endif %} | {% if d and d.matches %}{{ d.playing_strength }} · {{ '%.2f' | format(d.end_rating) | replace('.', '.') }}{% else %}–{% endif %} |
+        {%- endfor %}
     - type: tile
       entity: sensor.sam_de_vries_matches_won_this_year
       name: Won this year
@@ -61,12 +74,15 @@ views:
         **{{ ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][t.weekday()] }} {{ t.strftime('%-d-%-m %H:%M') }}** · {{ state_attr(e, 'event') }}{% if state_attr(e, 'round') %} · {{ state_attr(e, 'round') }}{% endif %}{% if state_attr(e, 'draw') %} · {{ state_attr(e, 'draw') }}{% endif %}
         {%- if state_attr(e, 'kind') == 'competition' %}
         {{ state_attr(e, 'home') }} – {{ state_attr(e, 'away') }}
+        {%- if state_attr(e, 'plays') %}
+        Plays: {{ state_attr(e, 'plays') | join(', ') }}
+        {%- endif %}
         {%- else %}
         {%- set partners = state_attr(e, 'partners') or [] %}
         {{ ('With ' ~ partners | join(' / ') ~ ' against ') if partners else 'Against ' }}{{ (state_attr(e, 'opponents') or []) | join(' / ') }}
         {%- endif %}
         {%- if state_attr(e, 'venue') %}
-        {{ state_attr(e, 'venue') }}
+        {{ state_attr(e, 'venue') }}{% if state_attr(e, 'address') %}, {{ state_attr(e, 'address') }}{% endif %}
         {%- endif %}
         {%- else %}No match planned yet.{% endif %}
     - type: heading
@@ -110,14 +126,24 @@ views:
         Own matches: {{ state_attr(e, 'wins') }}–{{ state_attr(e, 'losses') }}
         {%- endif %}
         {%- else %}No competition known.{% endif %}
+    - type: markdown
+      content: |-
+        {%- set rows = state_attr('sensor.sam_de_vries_competition_position', 'standing') or [] %}
+        {%- if rows %}
+        | # | Team | P | Pts |
+        |:-:|:--|:-:|:-:|
+        {%- for r in rows %}
+        | {{ r.position }} | {{ ('**' ~ r.team ~ '**') if r.own_team else r.team }} | {{ r.played }} | {{ r.points }} |
+        {%- endfor %}
+        {%- endif %}
     - type: statistics-graph
       title: Rating over time
       entities:
       - sensor.sam_de_vries_singles_rating
       - sensor.sam_de_vries_doubles_rating
       chart_type: line
-      period: week
-      days_to_show: 365
+      period: month
+      days_to_show: 1825
       stat_types:
       - mean
     - type: calendar

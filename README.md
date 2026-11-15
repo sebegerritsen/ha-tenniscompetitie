@@ -17,28 +17,54 @@ partner. Per player you get a device with:
 
 | Entity | State | Details (attributes) |
 |---|---|---|
-| **Singles rating** / **Doubles rating** | the KNLTB DSS rating, e.g. `6.1234` | playing strength (*speelsterkte*, 1–9), the playing strength from next season once published (and its date and trend), this season's start rating and number of rated matches |
+| **Singles rating** / **Doubles rating** | the KNLTB DSS rating, e.g. `6.1234` | playing strength (*speelsterkte*, 1–9), the playing strength from next season once published (and its date and trend), this season's start rating and number of rated matches, and every season's start and end rating |
 | **Padel rating** | the padel DSS rating | the same, for padel (only for players with a padel rating) |
 | **Matches won this year** / **Matches lost this year** | a number | singles, doubles and mixed separately, career totals, win percentage |
 | **Last result** | won or lost | the last five results with their dates |
 | **Last match** | its date | tournament or competition, round, opponents, partner, score, venue, duration |
-| **Next match** | its start time | the next match: of the player's competition teams, or a planned match in an entered tournament (round, draw, partner, opponents, venue) |
+| **Next match** | its start time | the next match of the player's competition teams or a planned tournament match: round, draw, partner, opponents, venue; for a team match also home or away, the venue's address and location, the line-up and which matches the player plays (once the captain has set it) |
 | **Tournament entries** | the number of upcoming entries | per tournament: dates, location, events, status (*Ingeschreven*, *Geaccepteerd*, …) and the Junior Tour preference; only for the account's own player |
-| **Competition position** | the team's position in its pool | competition, team, category and class, played, points, all the player's teams, the player's win-loss |
+| **Competition position** | the team's position in its pool | competition, team, category and class, points, the whole pool standing (played, won, drawn, lost, points, rubbers, sets, games, form), all the player's teams with their standings, the player's win-loss |
 | **Ranking** | position in the first ranking list | list and category, best position, points, the other lists the player is in |
-| **Matches** (calendar) | on during a match | the player's competition team matches and tournament matches (with start times once planned), and entered tournaments as all-day blocks until their matches are known |
+| **Match today** | on all day on days with a match | the first match (by start time) and how many there are |
+| **Match update** (event) | fires on a change | *result* (of the player's match), *new match* (planned in a tournament, or a team match coming up), *rescheduled*, *team result*, *new playing strength* (next season's), *rating changed* — with the details of the match or rating |
+| **Matches** (calendar) | on during a match | the player's competition team matches (with the venue) and tournament matches (with start times once planned), and entered tournaments as all-day blocks until their matches are known |
 
 - Lower is better for playing strengths (1 is the best). The *trend* is `up` when next season's
   playing strength is better than the current one.
+- **Rating history:** the integration reads the rating after every rated match of past seasons
+  (once, in the background) and fills Home Assistant's long-term statistics with it, so a
+  statistics graph of the rating shows years, not just the time since the integration was added.
+  Seasons before 2021 use another scale on the site and are left out.
 - Competition team matches last 5 hours in the calendar and tournament matches 2 hours (the site
   gives start times only); tournament matches without a time are all-day events.
 - Early in the year, before the new competitions start, last year's competitions are shown.
 - **Planned tournament matches** are not on a player's profile until they have been played. They
   are on the tournament's own pages, which the integration finds through the account's entries
-  (*Mijn inschrijvingen*), for tournaments that are running or start within 14 days; during a
-  tournament it updates every 30 minutes. Entries are only visible to the member who logged in, so
-  for other followed players the calendar has their competition matches but not their tournaments.
+  (*Mijn inschrijvingen*), for tournaments that are running or start within 14 days (Junior Tour
+  ones included); during a tournament it updates every 30 minutes. Entries are only visible to the
+  member who logged in, so for other followed players the calendar has their competition matches
+  but not their tournaments.
+- Change alerts also catch what changed while Home Assistant was off: the integration remembers
+  each player's matches and ratings as it last saw them. The first update only records.
 - Dutch and English.
+
+### Actions
+
+- `tenniscompetitie.get_matches`: a player's matches (their own, planned ones included, and their
+  teams'), optionally only the upcoming ones, as a response. For scripts, dashboards and voice
+  assistants.
+- `tenniscompetitie.get_standings`: the pool standings of the player's competition teams.
+
+### Blueprints
+
+Ready-made automations that send a notification to your phone (Home Assistant app), in Dutch or English:
+
+| Blueprint | What it does | |
+|---|---|---|
+| Notify on match updates | a result, a new or moved match, a team's final score, next season's playing strength, a changed rating | [![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fsebegerritsen%2Fha-tenniscompetitie%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Ftenniscompetitie%2Fmatch_update_notify.yaml) |
+| Reminder before a match | a set time before the next match, with the opponents or teams, the venue and address, and the player's matches in a team match | [![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fsebegerritsen%2Fha-tenniscompetitie%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Ftenniscompetitie%2Fmatch_reminder.yaml) |
+| Match day summary | at a set time on match days: today's matches with times, opponents and venues | [![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fsebegerritsen%2Fha-tenniscompetitie%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Ftenniscompetitie%2Fmatch_day_summary.yaml) |
 
 ## How it works, and the catch
 
@@ -56,8 +82,10 @@ MijnKNLTB has no tokens: the login cookie lasts 7 days, after which the integrat
 That is why the password is stored in Home Assistant (like every other integration that logs in with a
 password). If the password changes, Home Assistant asks for the new one.
 
-It polls gently: every 3 hours, and every 30 minutes on days with (or the day before) a match. One
-update reads 4–7 pages per player, one at a time.
+It polls gently: every 3 hours, and every 30 minutes on days with (or the day before) a match or
+during an entered tournament. One update reads 4–10 pages per player, one at a time; pages that
+change slowly (pool standings, the next team match) are reused for a few hours. Reading the rating
+history of past seasons takes a few dozen pages once, in the background.
 
 **Privacy.** Ratings and results are personal data, often of minors. The integration only fetches the
 players you add, keeps their data in your Home Assistant, and never sends it anywhere else. The
@@ -80,9 +108,12 @@ Add more players with **Add player** on the integration's page: search by name, 
 
 ## Example dashboard
 
+<img src="docs/images/dashboard.png" alt="The example dashboard on a phone, with a made-up player" width="360">
+
 [examples/dashboard.yaml](examples/dashboard.yaml) is a dashboard with a section per player: the
-playing strengths and ratings with next season's, win-loss, the last result and match, the next
-match, the competition teams and positions, the ranking, the rating over time and the calendar. Paste
+playing strengths and ratings with next season's, the seasons so far, win-loss, the last result,
+the next match with its venue and line-up, tournament entries, the last match, the competition with
+its pool standing, the ranking, the rating over the past five years and the calendar. Paste
 it into a new dashboard's raw configuration editor and replace `sam_de_vries` with your player's
 entity names.
 

@@ -56,7 +56,7 @@ async def test_login_and_follow_own_profile(
     assert result["description_placeholders"] == {"name": "Sam de Vries"}
 
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {"follow_own": True})
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "Sam de Vries"
     assert result["data"] == {CONF_LOGIN: LOGIN, CONF_PASSWORD: PASSWORD}
@@ -82,7 +82,7 @@ async def test_login_without_following(hass: HomeAssistant, mock_site: AiohttpCl
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"follow_own": False}
     )
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["result"].subentries == {}
 
@@ -99,7 +99,7 @@ async def test_account_without_own_profile(
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {CONF_LOGIN: LOGIN, CONF_PASSWORD: PASSWORD}
     )
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == LOGIN
 
@@ -135,7 +135,7 @@ async def test_own_profile_unreadable(
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {CONF_LOGIN: LOGIN, CONF_PASSWORD: PASSWORD}
     )
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["result"].subentries == {}
 
@@ -164,7 +164,7 @@ async def test_reauth(
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {CONF_PASSWORD: "nieuw"}
     )
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reauth_successful"
     assert config_entry.data[CONF_PASSWORD] == "nieuw"
@@ -192,7 +192,7 @@ async def _setup_account(hass: HomeAssistant) -> MockConfigEntry:
     )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     return entry
 
 
@@ -211,7 +211,7 @@ async def test_add_own_profile(hass: HomeAssistant, mock_site: AiohttpClientMock
     result = await hass.config_entries.subentries.async_configure(
         result["flow_id"], {"next_step_id": "own"}
     )
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "Sam de Vries"
     assert result["unique_id"] == OWN_ID
@@ -246,7 +246,7 @@ async def test_add_player_by_search(hass: HomeAssistant, mock_site: AiohttpClien
     result = await hass.config_entries.subentries.async_configure(
         result["flow_id"], {CONF_PROFILE_ID: OTHER_ID}
     )
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "Robin de Vries"
     assert result["data"][CONF_CLUB] == "T.V. Voorbeeld | VOORBEELDSTAD"
@@ -258,7 +258,7 @@ async def test_search_only_when_own_profile_followed(
     """With the own profile followed, the flow goes straight to the search."""
     config_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(config_entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     result = await _start_player(hass, config_entry)
     assert result["step_id"] == "search"
     result = await hass.config_entries.subentries.async_configure(

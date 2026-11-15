@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Any
 
 from homeassistant.config_entries import ConfigSubentryData
@@ -52,11 +53,28 @@ URL_ENTRIES = f"{BASE_URL}/user/entries"
 URL_ENTRIES_NEXT_YEAR = f"{BASE_URL}/user/entries/GetUserEntryListByYear/2027"
 URL_EVENT = f"{BASE_URL}/sport/event.aspx?id={TOURNAMENT}&event=6"
 URL_TOURNAMENT_PLAYER = f"{BASE_URL}/sport/player.aspx?id={TOURNAMENT}&player=3234"
+URL_TEAM_MATCH = f"{BASE_URL}/league/{LEAGUE}/team-match/7030"
+RE_DRAW = re.compile(r"/league/[0-9a-f-]+/draw/\d+$")
+RE_RATING_SUMMARY = re.compile(r"/SnapshotSummary\?")
+RE_RATED_MATCHES = re.compile(r"/RatingMatchList\?")
+JT_TOURNAMENT = "00000000-0000-4000-8000-0000000000c3"
+URL_JT_EVENTS = f"{BASE_URL}/sport/events.aspx?id={JT_TOURNAMENT}"
+URL_JT_EVENT = f"{BASE_URL}/sport/event.aspx?id={JT_TOURNAMENT}&event=5"
+URL_JT_PLAYER = f"{BASE_URL}/sport/player.aspx?id={JT_TOURNAMENT}&player=77"
 
 
 def load_fixture(name: str) -> str:
     """Load a saved (anonymised) page."""
     return (FIXTURES / name).read_text(encoding="utf-8")
+
+
+def answer_with(fixture: str) -> Any:
+    """Answer a request matched by a pattern with a page, at the URL that was asked for."""
+
+    async def side_effect(method: str, url: URL, data: Any) -> AiohttpClientMockResponse:
+        return AiohttpClientMockResponse(method, url, text=load_fixture(fixture))
+
+    return side_effect
 
 
 def page_at(url: str, fixture: str) -> AiohttpClientMockResponse:
@@ -109,7 +127,15 @@ def mock_login(aioclient_mock: AiohttpClientMocker, *, ok: bool = True) -> None:
 
 
 def mock_entries(aioclient_mock: AiohttpClientMocker) -> None:
-    """Answer the account's entries and the entered tournament's pages."""
+    """Answer the account's entries, the entered tournaments' pages and the detail pages
+    (pool standing, the next team match, the rating history)."""
+    aioclient_mock.get(URL_TEAM_MATCH, text=load_fixture("team_match.html"))
+    aioclient_mock.get(RE_DRAW, side_effect=answer_with("draw.html"))
+    aioclient_mock.get(RE_RATING_SUMMARY, side_effect=answer_with("rating_summary.html"))
+    aioclient_mock.get(RE_RATED_MATCHES, side_effect=answer_with("rated_matches.html"))
+    aioclient_mock.get(URL_JT_EVENTS, text=load_fixture("jt_events.html"))
+    aioclient_mock.get(URL_JT_EVENT, text=load_fixture("jt_event.html"))
+    aioclient_mock.get(URL_JT_PLAYER, text=load_fixture("jt_player.html"))
     aioclient_mock.get(URL_HOME, text=load_fixture("home.html"))
     aioclient_mock.get(URL_ENTRIES_NEXT_YEAR, text=load_fixture("entries_partial.html"))
     aioclient_mock.get(URL_ENTRIES, text=load_fixture("entries.html"))

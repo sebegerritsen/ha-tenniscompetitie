@@ -107,6 +107,31 @@ What `custom_components/tenniscompetitie/parsers.py` reads (tested against anony
   calendar-export link). No result tag yet, so the player's side is found by name; names may carry a
   seeding (`"[2]"`). `<n>` differs per tournament: find it on the event page (the entrants table links
   `player.aspx?…&player=<n>` with the names). The tournament's `players` page loads its list by script.
+- **Junior Tour entries** link no event page. The tournament's events page,
+  `/sport/events.aspx?id=<guid>`, links every event (`event.aspx?id=<guid>&event=<n>`) by name: find the
+  entered event by name there.
+- **Pool** (`/league/<guid>/draw/<n>`, the link of the team's category on the competitions page): a
+  `table` with `.standing-status` (position) per row and columns named by the `title` of each header
+  (*Gespeeld*, *Winst*, *Gelijk*, *Verloren*, *Punten*, *Wedstrijden*, *Sets*, *Games*, *Historie*); the
+  form as `.standing-form .match__status` (W, V, G = draw). Below it the pool's whole schedule.
+- **Team match** (`/league/<guid>/team-match/<n>`): `.team-match-header` with the round and
+  `<time datetime>`, `.team-match__name.is-team-1|2` (the `title` is the team), the score; the rubbers
+  as `.match-group div.match` (header = HE1, HD2, …; rows = home and away players, `has-won`), once the
+  captains have set the line-up; the venue (*Speellocatie*) as an h-card (`.p-street-address`,
+  `.p-postal-code`, `.p-locality`), the surface as the `.tag` without `tag--placeholder`, and the
+  coordinates in the route link (`/link/route.aspx?…&lat=…&lng=…`). The page also lists the captains'
+  phone numbers and email addresses: leave those alone.
+- **Rating history**: the Rating page's season tabs (`.page-nav__item a[data-href]`, the active one is on
+  the page itself) load a season's summary from `…/rating/<guid>/SnapshotSummary?RatingCode=…` —
+  only for the page's own script: send `X-Requested-With: XMLHttpRequest`, or the answer is a 404. The
+  summary has the same blocks as the Rating page, with *Eindrating* (and the season's change next to
+  it) instead of *Huidige rating*, and per discipline a `form` whose `action` is
+  `…/RatingMatchList?RatingCode=…&ranktype=1|2` (singles, doubles; GET, also as a script request): the
+  season's rated matches, newest first. Per match the change in `.match__header-aside .tag`
+  (`-0,1231`: four decimals; a whole number there is something else) and each player's rating before
+  the match in brackets in `.match__row-title-aside`. In mixed doubles that rating includes the mixed
+  correction (+1); at the end of a season juniors get a correction too (−0,2), visible only in the next
+  season's start rating. Seasons before 2021 show other numbers there.
 - **Dates**: `<time datetime="YYYY-MM-DD HH:MM">` (Dutch local time), else `d-m-yyyy` in text.
 - Numbers use a decimal comma.
 

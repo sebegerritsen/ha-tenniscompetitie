@@ -74,7 +74,12 @@ class KnltbClient:
         self.own_profile_id: str | None = None
 
     async def _request(
-        self, method: str, path: str, data: list[tuple[str, str]] | None = None
+        self,
+        method: str,
+        path: str,
+        data: list[tuple[str, str]] | None = None,
+        *,
+        xhr: bool = False,
     ) -> tuple[URL, str]:
         """Make one request; return the final URL (after redirects) and the body."""
         if self._spacing and (wait := self._last_request + self._spacing - time.monotonic()) > 0:
@@ -85,7 +90,12 @@ class KnltbClient:
                 method,
                 BASE_URL + path,
                 data=data,
-                headers={"User-Agent": USER_AGENT, "Accept-Language": "nl-NL,nl;q=0.9"},
+                headers={
+                    "User-Agent": USER_AGENT,
+                    "Accept-Language": "nl-NL,nl;q=0.9",
+                    # Parts of pages are only served to the page's own scripts.
+                    **({"X-Requested-With": "XMLHttpRequest"} if xhr else {}),
+                },
                 timeout=REQUEST_TIMEOUT,
             ) as response:
                 if response.status >= HTTPStatus.INTERNAL_SERVER_ERROR:
@@ -137,18 +147,19 @@ class KnltbClient:
     async def get(self, path: str, *, page: bool = True) -> str:
         """Fetch a page, logging in (again) when the site asks for it.
 
-        `page=False` is for a part of a page loaded on its own: it has no account menu,
-        so only a redirect to the login page tells that the session ended.
+        `page=False` is for a part of a page loaded on its own (as the page's scripts do):
+        it has no account menu, so only a redirect to the login page tells that the
+        session ended.
         """
 
         def logged_out(url: URL, body: str) -> bool:
             return url.path.startswith(LOGIN_PATHS) or (page and not is_logged_in(body))
 
         async with self._lock:
-            url, body = await self._request("GET", path)
+            url, body = await self._request("GET", path, xhr=not page)
             if logged_out(url, body):
                 await self._log_in()
-                url, body = await self._request("GET", path)
+                url, body = await self._request("GET", path, xhr=not page)
                 if logged_out(url, body):
                     raise KnltbAuthError(f"Still not logged in for {path}")
             return body

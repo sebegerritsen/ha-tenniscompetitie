@@ -1,6 +1,9 @@
 {
   "domain": "tenniscompetitie",
   "name": "Tenniscompetitie",
+  "after_dependencies": [
+    "recorder"
+  ],
   "codeowners": [
     "@sebegerritsen"
   ],

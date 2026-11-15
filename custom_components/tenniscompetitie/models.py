@@ -170,11 +170,24 @@ class SeasonRating:
 
 
 @dataclass(frozen=True, slots=True)
+class RatingSeason:
+    """A season tab of the Rating page."""
+
+    season: str
+    padel: bool
+    summary_path: str | None  # None for the season shown on the page itself
+    active: bool
+
+
+@dataclass(frozen=True, slots=True)
 class RatingPage:
-    """The Rating page: the current season per discipline."""
+    """The Rating page: the current season per discipline, and the other seasons' tabs."""
 
     season: str | None
     ratings: dict[Discipline, SeasonRating]
+    seasons: tuple[RatingSeason, ...] = ()
+    # The lists of the current season's rated matches, per discipline (once there are any).
+    matches_paths: dict[Discipline, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,6 +200,7 @@ class CompetitionTeam:
     team_path: str | None
     position: int | None
     played: int | None
+    draw_path: str | None = None  # the pool: standing and all its matches
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,6 +259,91 @@ class Entry:
     def is_relevant(self, today: date) -> bool:
         """Return whether the entry still stands and the tournament has not ended."""
         return self.accepted is not False and (self.end is None or self.end >= today)
+
+
+@dataclass(frozen=True, slots=True)
+class StandingRow:
+    """A team's row in its pool's standing."""
+
+    position: int | None
+    team: str
+    played: int | None
+    won: int | None
+    drawn: int | None
+    lost: int | None
+    points: int | None
+    matches: str | None  # rubbers won-lost, e.g. "21-9"
+    sets: str | None
+    games: str | None
+    form: tuple[bool | None, ...] = ()  # last results, oldest first (None: a draw)
+
+
+@dataclass(frozen=True, slots=True)
+class Venue:
+    """Where a team match is played (the home club's park)."""
+
+    name: str
+    street: str | None
+    postal_code: str | None
+    city: str | None
+    surface: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+
+    @property
+    def address(self) -> str | None:
+        """Return the address on one line."""
+        place = " ".join(part for part in (self.postal_code, self.city) if part)
+        return ", ".join(part for part in (self.street, place) if part) or None
+
+
+@dataclass(frozen=True, slots=True)
+class Rubber:
+    """One match of a team match (HE1, HD2, …) with the players of both sides."""
+
+    code: str
+    home: tuple[str, ...]
+    away: tuple[str, ...]
+    home_won: bool | None  # None while not played
+
+
+@dataclass(frozen=True, slots=True)
+class TeamMatchDetail:
+    """A team match's own page: start, venue and line-up."""
+
+    start: datetime | None
+    home: str
+    away: str
+    venue: Venue | None
+    rubbers: tuple[Rubber, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RatedMatch:
+    """A match that counted for the DSS rating, with the rating it left."""
+
+    day: date
+    rating_before: float
+    change: float
+    won: bool | None
+
+    @property
+    def rating_after(self) -> float:
+        """Return the rating after the match (lower is better)."""
+        return round(self.rating_before + self.change, 4)
+
+
+@dataclass(frozen=True, slots=True)
+class SeasonSummary:
+    """A discipline's DSS figures over one season."""
+
+    season: str
+    discipline: Discipline
+    strength: int | None
+    start_rating: float | None
+    end_rating: float | None
+    matches: int | None
+    matches_path: str | None = None  # the list of the season's rated matches
 
 
 @dataclass(frozen=True, slots=True)

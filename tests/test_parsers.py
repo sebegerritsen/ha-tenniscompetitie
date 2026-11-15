@@ -6,7 +6,14 @@ from datetime import date, datetime
 
 import pytest
 
-from custom_components.tenniscompetitie.models import NL_TZ, Discipline, RecordType, Trend, WinLoss
+from custom_components.tenniscompetitie.models import (
+    NL_TZ,
+    Discipline,
+    RatedMatch,
+    RecordType,
+    Trend,
+    WinLoss,
+)
 from custom_components.tenniscompetitie.parsers import (
     KnltbParseError,
     find_tournament_player,
@@ -15,12 +22,18 @@ from custom_components.tenniscompetitie.parsers import (
     own_profile_id,
     parse_competition_matches,
     parse_competitions,
+    parse_draw_page,
     parse_entries,
+    parse_event_links,
     parse_profile,
+    parse_rated_matches,
     parse_rating_page,
+    parse_rating_summary,
     parse_search,
+    parse_team_match_page,
     parse_team_page,
     parse_tournament_matches,
+    rating_series,
     same_person,
 )
 
@@ -343,3 +356,133 @@ def test_same_person_ignores_seeding() -> None:
     """A seeding after a name does not make it another player."""
     assert same_person("Sam de Vries [1]", "sam de vries")
     assert not same_person("Sam de Vries", "Sam de Vriesema")
+
+
+def test_rating_page_seasons_and_match_lists() -> None:
+    """The Rating page's season tabs and the current season's lists of rated matches."""
+    page = parse_rating_page(load_fixture("rating.html"))
+    tennis = [s for s in page.seasons if not s.padel]
+    assert [s.season for s in tennis] == [
+        "Seizoen 2026 - 2027",
+        "Seizoen 2025 - 2026",
+        "Seizoen 2024 - 2025",
+    ]
+    assert tennis[0].active and tennis[0].summary_path is None
+    assert not tennis[1].active and "/SnapshotSummary?" in (tennis[1].summary_path or "")
+    assert len([s for s in page.seasons if s.padel]) == 3
+    assert set(page.matches_paths) == {Discipline.SINGLES, Discipline.DOUBLES}
+    assert page.matches_paths[Discipline.SINGLES].endswith("ranktype=1")
+
+
+def test_rating_summary() -> None:
+    """A past season: start and end rating (without the change shown next to it)."""
+    singles, doubles = parse_rating_summary(
+        load_fixture("rating_summary.html"), "Seizoen 2025 - 2026"
+    )
+    assert singles.season == "Seizoen 2025 - 2026"
+    assert singles.discipline is Discipline.SINGLES
+    assert (singles.strength, singles.matches) == (6, 3)
+    assert singles.start_rating == pytest.approx(6.7)
+    assert singles.end_rating == pytest.approx(6.4)
+    assert "RatingMatchList" in (singles.matches_path or "")
+    assert doubles.matches == 0
+    padel = parse_rating_summary(load_fixture("rating_summary.html"), "S", padel=True)
+    assert {s.discipline for s in padel} == {Discipline.PADEL}
+
+
+def test_rated_matches() -> None:
+    """Rated matches oldest first, with the rating each one left (the player's own in doubles)."""
+    matches = parse_rated_matches(load_fixture("rated_matches.html"), "Sam de Vries")
+    assert [m.day for m in matches] == [
+        date(2025, 9, 7),
+        date(2025, 9, 13),
+        date(2025, 9, 20),
+        date(2025, 9, 27),
+    ]
+    first, second, third, doubles = matches
+    assert (first.rating_before, first.change, first.won) == (6.7, -0.2, True)
+    assert first.rating_after == pytest.approx(6.5)
+    assert second.rating_after == pytest.approx(6.55)
+    assert second.won is False
+    assert third.rating_after == pytest.approx(6.4)
+    # The partner is named first; the player's own rating is the second one.
+    assert doubles.rating_before == pytest.approx(6.4)
+    assert doubles.rating_after == pytest.approx(6.35)
+    # The match on 21-9 shows no rating change ("50"): left out.
+
+
+def test_rated_matches_without_name() -> None:
+    """Without the player's name only singles rows (one name) can be read."""
+    matches = parse_rated_matches(load_fixture("rated_matches.html"))
+    assert len(matches) == 3
+
+
+def test_pool_standing() -> None:
+    """The pool's standing: every column by its title, and the form."""
+    rows = parse_draw_page(load_fixture("draw.html"))
+    assert [row.team for row in rows] == ["PROEFPARK 1", "TESTCLUB 1", "VOORBEELD 1"]
+    own = rows[2]
+    assert (own.position, own.played, own.won, own.drawn, own.lost, own.points) == (
+        5,
+        5,
+        2,
+        0,
+        3,
+        14,
+    )
+    assert (own.matches, own.sets, own.games) == ("14-16", "34-34", "274-259")
+    assert own.form == (True, False, False, False, True)
+    assert rows[0].form[-1] is None  # a draw
+    with pytest.raises(KnltbParseError):
+        parse_draw_page(NOT_A_PROFILE)
+
+
+def test_team_match_page() -> None:
+    """A team match: start, teams, venue with address and place, and the line-up."""
+    detail = parse_team_match_page(load_fixture("team_match.html"))
+    assert detail.start == datetime(2026, 11, 15, 11, 30, tzinfo=NL_TZ)
+    assert (detail.home, detail.away) == ("VOORBEELD 1", "OEFENBAAN 1")
+    venue = detail.venue
+    assert venue is not None
+    assert (venue.name, venue.street, venue.postal_code, venue.city) == (
+        "T.V. Voorbeeld",
+        "Voorbeeldlaan 1",
+        "1234 AB",
+        "Voorbeeldstad",
+    )
+    assert venue.address == "Voorbeeldlaan 1, 1234 AB Voorbeeldstad"
+    assert venue.surface == "Gravel"
+    assert (venue.latitude, venue.longitude) == (pytest.approx(52.00001), pytest.approx(5.00002))
+    assert [(r.code, r.home, r.away) for r in detail.rubbers] == [
+        ("HE1", ("Max Kok",), ("Wim Wolters",)),
+        ("HE2", ("Sam de Vries",), ("Olaf Smits",)),
+        ("HD1", ("Max Kok", "Sam de Vries"), ("Wim Wolters", "Olaf Smits")),
+    ]
+    assert detail.rubbers[0].home_won is None
+    with pytest.raises(KnltbParseError):
+        parse_team_match_page(NOT_A_PROFILE)
+
+
+def test_event_links() -> None:
+    """A tournament's events by name, for entries that do not link them."""
+    links = parse_event_links(load_fixture("jt_events.html"))
+    assert links["tennis je 16 brons"] == (
+        "/sport/event.aspx?id=00000000-0000-4000-8000-0000000000c3&event=5"
+    )
+
+
+def test_rating_series() -> None:
+    """The rating over a season: shown ratings far off (mixed doubles' +1) are ignored."""
+    rated = [
+        RatedMatch(day=date(2025, 9, 7), rating_before=6.7, change=-0.2, won=True),
+        # Mixed doubles: shown with the +1 correction, the change is the plain one.
+        RatedMatch(day=date(2025, 9, 13), rating_before=7.5, change=0.05, won=False),
+        RatedMatch(day=date(2025, 9, 20), rating_before=6.56, change=-0.15, won=True),
+    ]
+    assert rating_series(rated, 6.7) == [
+        (date(2025, 9, 7), pytest.approx(6.5)),
+        (date(2025, 9, 13), pytest.approx(6.55)),
+        # A small difference with the shown rating: the site's figure wins.
+        (date(2025, 9, 20), pytest.approx(6.41)),
+    ]
+    assert rating_series([], 6.7) == []
