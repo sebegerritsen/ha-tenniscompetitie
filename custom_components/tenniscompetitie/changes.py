@@ -135,6 +135,9 @@ def detect(
             continue
         if match.won is not None and before.get("won") is None:
             changes.append(Change(ChangeType.RESULT, match=match))
+        elif match.won is None and match.start is not None and before.get("start") is None:
+            # A known match (e.g. the next round of a tournament) got its time.
+            changes.append(Change(ChangeType.NEW_MATCH, match=match))
         elif (
             match.won is None
             and match.start is not None

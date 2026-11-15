@@ -110,3 +110,14 @@ def test_strength_and_rating() -> None:
     assert [c.type for c in changes] == [ChangeType.RATING]
     assert changes[0].previous["rating"] == 6.1234
     assert _detect(before, ratings={Discipline.SINGLES: SINGLES}) == []
+
+
+def test_known_match_gets_its_time() -> None:
+    """The next round, known without a time, is new once its time is set."""
+    unplanned = replace(PLANNED, round="Ronde 2", day=None, start=None)
+    planned = replace(
+        unplanned, day=date(2026, 11, 22), start=datetime(2026, 11, 22, 14, 0, tzinfo=NL_TZ)
+    )
+    changes = _detect(_snap([unplanned]), [planned])
+    assert [c.type for c in changes] == [ChangeType.NEW_MATCH]
+    assert _detect(_snap([planned]), [planned]) == []
