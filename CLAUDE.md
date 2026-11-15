@@ -1,7 +1,7 @@
 # Tenniscompetitie: notes for working on this repo
 
 Public open-source project (GitHub: sebegerritsen/ha-tenniscompetitie), meant for HACS, a sibling of
-ha-knhb-hockey and ha-competitie-voetbal (same structure and conventions; look there for patterns).
+ha-hockeycompetitie and ha-competitie-voetbal (same structure and conventions; look there for patterns).
 Everything in this repo is public: **no personal data** — no names, member numbers, ratings or results
 of real people, no account details, no club of the owner. Test fixtures are saved pages with all
 personal data replaced by made-up values.
