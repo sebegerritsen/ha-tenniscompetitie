@@ -227,6 +227,27 @@ class TeamPage:
 
 
 @dataclass(frozen=True, slots=True)
+class Entry:
+    """A tournament entry of the logged-in member (only visible to that member)."""
+
+    tournament_id: str
+    name: str
+    location: str | None
+    start: date | None
+    end: date | None
+    kind: str | None  # e.g. "Open toernooi", "Junioren Tour Brons"
+    # The events entered: (name, path of the event page when linked).
+    events: tuple[tuple[str, str | None], ...]
+    status: str | None  # as the site words it, e.g. "Ingeschreven", "Geaccepteerd"
+    accepted: bool | None  # False once refused or withdrawn; None while undecided
+    priority: int | None = None  # Junior Tour: the order of preference in a week
+
+    def is_relevant(self, today: date) -> bool:
+        """Return whether the entry still stands and the tournament has not ended."""
+        return self.accepted is not False and (self.end is None or self.end >= today)
+
+
+@dataclass(frozen=True, slots=True)
 class PlayerRef:
     """A player found by search."""
 

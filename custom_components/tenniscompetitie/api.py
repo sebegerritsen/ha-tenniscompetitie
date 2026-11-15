@@ -134,14 +134,22 @@ class KnltbClient:
         async with self._lock:
             await self._log_in()
 
-    async def get(self, path: str) -> str:
-        """Fetch a page, logging in (again) when the site asks for it."""
+    async def get(self, path: str, *, page: bool = True) -> str:
+        """Fetch a page, logging in (again) when the site asks for it.
+
+        `page=False` is for a part of a page loaded on its own: it has no account menu,
+        so only a redirect to the login page tells that the session ended.
+        """
+
+        def logged_out(url: URL, body: str) -> bool:
+            return url.path.startswith(LOGIN_PATHS) or (page and not is_logged_in(body))
+
         async with self._lock:
             url, body = await self._request("GET", path)
-            if url.path.startswith(LOGIN_PATHS) or not is_logged_in(body):
+            if logged_out(url, body):
                 await self._log_in()
                 url, body = await self._request("GET", path)
-                if url.path.startswith(LOGIN_PATHS) or not is_logged_in(body):
+                if logged_out(url, body):
                     raise KnltbAuthError(f"Still not logged in for {path}")
             return body
 

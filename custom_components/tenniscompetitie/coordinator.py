@@ -25,6 +25,7 @@ from .const import (
 from .models import (
     NL_TZ,
     Competition,
+    Entry,
     Match,
     Profile,
     RatingPage,
@@ -33,11 +34,15 @@ from .models import (
 )
 from .parsers import (
     KnltbParseError,
+    find_tournament_player,
+    name_key,
     parse_competition_matches,
     parse_competitions,
+    parse_entries,
     parse_profile,
     parse_rating_page,
     parse_team_page,
+    parse_tournament_matches,
 )
 
 # Which pages failed to parse, per player, for the one "markup changed" repair.
@@ -45,6 +50,10 @@ DATA_PARSE_FAILURES: HassKey[dict[str, set[str]]] = HassKey(f"{DOMAIN}_parse_fai
 
 # A competition counts as current from this long before its start to after its end.
 COMPETITION_MARGIN = timedelta(days=14)
+# Look up the player's matches in an entered tournament from this long before it starts
+# (draws and times are published a few days before).
+TOURNAMENT_LOOKAHEAD = timedelta(days=14)
+ENTRIES_PATH = "/user/entries"
 
 
 @dataclass(slots=True)
@@ -78,13 +87,32 @@ class PlayerData:
     competitions: list[Competition] | None = None
     teams: list[TeamSchedule] = field(default_factory=list)
     competition_matches: list[Match] = field(default_factory=list)
+    # The account's own tournament entries (None for other players: only the logged-in
+    # member sees them) and the player's matches in entered tournaments, planned ones too.
+    entries: list[Entry] | None = None
+    tournament_matches: list[Match] = field(default_factory=list)
     parse_failures: set[str] = field(default_factory=set)
 
     @property
     def matches(self) -> list[Match]:
-        """Return all known matches (tournaments and competitions), oldest first."""
-        tournament = [match for t in self.profile.tournaments for match in t.matches]
-        return sorted([*tournament, *self.competition_matches], key=lambda m: m.sort_key)
+        """Return all known matches (tournaments and competitions), oldest first.
+
+        A tournament match on both the profile and the tournament's own page counts once,
+        as the tournament page has it (it is the more current of the two).
+        """
+        played = [match for t in self.profile.tournaments for match in t.matches]
+        unique = {
+            match_key(match): match
+            for match in [*played, *self.competition_matches, *self.tournament_matches]
+        }
+        return sorted(unique.values(), key=lambda m: m.sort_key)
+
+    def relevant_entries(self, today: date) -> list[Entry]:
+        """Return the entries that still stand for tournaments that have not ended."""
+        return sorted(
+            (entry for entry in self.entries or [] if entry.is_relevant(today)),
+            key=lambda entry: (entry.start or date.max, entry.priority or 0),
+        )
 
     def last_match(self, today: date) -> Match | None:
         """Return the most recent match with a result."""
@@ -123,12 +151,25 @@ class PlayerData:
         """Return whether a team or tournament match of the player is on a day."""
         if any(match.day == day for _team, match in self.team_matches()):
             return True
+        if any(match.day == day for match in self.tournament_matches):
+            return True
+        spans = [(t.start, t.end) for t in self.profile.tournaments]
+        spans += [(e.start, e.end) for e in self.entries or [] if e.accepted is not False]
         return any(
-            tournament.start is not None
-            and tournament.end is not None
-            and tournament.start <= day <= tournament.end
-            for tournament in self.profile.tournaments
+            start is not None and end is not None and start <= day <= end for start, end in spans
         )
+
+
+def match_key(match: Match) -> tuple[str, str, str, str, frozenset[str]]:
+    """Return what identifies a match across pages: event, round, draw, opponents."""
+    opponents = frozenset(name_key(name) for name in match.opponents)
+    return (
+        match.kind,
+        (match.event or "").casefold(),
+        match.round or "",
+        match.draw or "",
+        opponents,
+    )
 
 
 def update_markup_issue(hass: HomeAssistant, key: str, pages: set[str]) -> None:
@@ -184,6 +225,8 @@ class KnltbPlayerCoordinator(DataUpdateCoordinator[PlayerData]):
         self.client = client
         self.subentry = subentry
         self.profile_id: str = subentry.data[CONF_PROFILE_ID]
+        # The player's page in each entered tournament (found once, by name).
+        self._tournament_pages: dict[str, str] = {}
 
     async def _async_update_data(self) -> PlayerData:
         try:
@@ -248,7 +291,49 @@ class KnltbPlayerCoordinator(DataUpdateCoordinator[PlayerData]):
 
         for competition in self._followed_competitions(data.competitions or [], today):
             await self._fetch_competition(data, competition, profile.name)
+
+        if self.profile_id == await self.client.get_own_profile_id():
+            await self._fetch_entries(data, profile.name, today)
         return data
+
+    async def _fetch_entries(self, data: PlayerData, name: str, today: date) -> None:
+        """Fetch the account's own tournament entries and its matches in them."""
+        try:
+            entries = parse_entries(await self.client.get(ENTRIES_PATH))
+            if today.month == 12:
+                # Entries for January tournaments are under next year.
+                entries += parse_entries(
+                    await self.client.get(
+                        f"{ENTRIES_PATH}/GetUserEntryListByYear/{today.year + 1}", page=False
+                    ),
+                    partial=True,
+                )
+        except KnltbParseError as err:
+            self._parse_failed(data, err)
+            return
+        data.entries = entries
+        for entry in data.relevant_entries(today):
+            if entry.start is not None and entry.start - TOURNAMENT_LOOKAHEAD > today:
+                continue
+            if (path := await self._tournament_page(entry, name)) is None:
+                continue
+            data.tournament_matches.extend(
+                parse_tournament_matches(await self.client.get(path), entry.name, name)
+            )
+
+    async def _tournament_page(self, entry: Entry, name: str) -> str | None:
+        """Find the player's page in a tournament through the entered events' pages."""
+        if (path := self._tournament_pages.get(entry.tournament_id)) is not None:
+            return path
+        for _event, event_path in entry.events:
+            if event_path is None:
+                continue
+            if (
+                path := find_tournament_player(await self.client.get(event_path), name)
+            ) is not None:
+                self._tournament_pages[entry.tournament_id] = path
+                return path
+        return None
 
     @staticmethod
     def _followed_competitions(competitions: list[Competition], today: date) -> list[Competition]:

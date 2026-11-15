@@ -42,6 +42,10 @@ Decided (Nov 2026):
 - `coordinator.py`: a coordinator per player subentry. Only the profile page is required; rating,
   competitions, team pages and competition matches may fail alone (part = None, repair
   `markup_changed` listing the pages; cleared after a clean update). 3 h, 30 min on/before match days.
+- For the account's own player only (entries are private): `/user/entries` → for entered tournaments
+  that run or start within 14 days, the player's page in the tournament (found by name on the event
+  page, cached per tournament) → planned matches with times. Profiles show tournament matches only
+  once played; `PlayerData.matches` merges both (one match counts once, the tournament page wins).
 - `sensor.py`, `calendar.py`, `config_flow.py` (account + `PlayerSubentryFlow`), `diagnostics.py`
   (shape only: no names, member numbers or profile ids).
 

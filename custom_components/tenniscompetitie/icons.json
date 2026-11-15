@@ -39,6 +39,9 @@
       },
       "ranking": {
         "default": "mdi:format-list-numbered"
+      },
+      "tournament_entries": {
+        "default": "mdi:clipboard-list-outline"
       }
     }
   }

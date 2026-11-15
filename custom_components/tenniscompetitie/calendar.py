@@ -13,7 +13,7 @@ from homeassistant.util import dt as dt_util
 from .const import TEAM_MATCH_DURATION, TOURNAMENT_MATCH_DURATION
 from .coordinator import KnltbConfigEntry, KnltbPlayerCoordinator, PlayerData, TeamSchedule
 from .entity import KnltbEntity
-from .models import Match, TeamMatch
+from .models import Entry, Match, TeamMatch
 
 PARALLEL_UPDATES = 0
 
@@ -95,17 +95,47 @@ def tournament_match_event(match: Match) -> CalendarEvent | None:
     )
 
 
-def player_events(data: PlayerData) -> list[CalendarEvent]:
-    """Return all events of a player, in start order."""
+def entry_event(entry: Entry) -> CalendarEvent | None:
+    """Return an entered tournament as an all-day event over its days."""
+    if entry.start is None:
+        return None
+    end = entry.end or entry.start
+    events = ", ".join(name for name, _path in entry.events)
+    return CalendarEvent(
+        start=entry.start,
+        end=end + timedelta(days=1),
+        summary=f"{entry.name} ({events})" if events else entry.name,
+        description=_join(
+            entry.kind,
+            entry.status,
+            f"Voorkeur {entry.priority}" if entry.priority else None,
+        ),
+        location=entry.location,
+        uid=f"entry-{entry.tournament_id}",
+    )
+
+
+def player_events(data: PlayerData, today: date | None = None) -> list[CalendarEvent]:
+    """Return all events of a player, in start order.
+
+    An entered tournament shows as one all-day block until its matches are known.
+    """
     events = [
         event
         for team, match in data.team_matches()
         if (event := team_match_event(team, match)) is not None
     ]
+    matches = data.matches
     events += [
         event
-        for match in data.matches
+        for match in matches
         if match.kind == "tournament" and (event := tournament_match_event(match)) is not None
+    ]
+    with_matches = {(m.event or "").casefold() for m in matches if m.kind == "tournament"}
+    events += [
+        event
+        for entry in data.relevant_entries(today or dt_util.now().date())
+        if entry.name.casefold() not in with_matches and (event := entry_event(entry)) is not None
     ]
     return sorted(events, key=lambda event: event.start_datetime_local)
 

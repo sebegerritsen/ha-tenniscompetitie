@@ -1,8 +1,9 @@
 # Example dashboard for Tenniscompetitie: one section per player.
 # Settings → Dashboards → Add dashboard → New dashboard from scratch, then ⋮ → Edit → ⋮ → Raw
 # configuration editor, and paste this. Replace `sam_de_vries` with your player's entity names
-# (sensor.<player>_singles_rating, …) and copy the section for every player you follow.
-# The rating graph fills from the day the integration was added (long-term statistics).
+# (sensor.<player>_singles_rating, …) and copy the section for every player you follow. The
+# "Tournament entries" heading and card only work for the account's own player: leave them out
+# for the others. The rating graph fills from the day the integration was added.
 views:
 - title: Tennis
   path: tennis
@@ -49,9 +50,36 @@ views:
       name: Ranking
       grid_options:
         columns: 6
-    - type: tile
-      entity: sensor.sam_de_vries_next_match
-      name: Next match
+    - type: heading
+      heading: Next match
+      heading_style: subtitle
+    - type: markdown
+      content: |-
+        {%- set e = 'sensor.sam_de_vries_next_match' %}
+        {%- if states(e) not in ['unknown', 'unavailable'] %}
+        {%- set t = as_local(as_datetime(states(e))) %}
+        **{{ ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][t.weekday()] }} {{ t.strftime('%-d-%-m %H:%M') }}** · {{ state_attr(e, 'event') }}{% if state_attr(e, 'round') %} · {{ state_attr(e, 'round') }}{% endif %}{% if state_attr(e, 'draw') %} · {{ state_attr(e, 'draw') }}{% endif %}
+        {%- if state_attr(e, 'kind') == 'competition' %}
+        {{ state_attr(e, 'home') }} – {{ state_attr(e, 'away') }}
+        {%- else %}
+        {%- set partners = state_attr(e, 'partners') or [] %}
+        {{ ('With ' ~ partners | join(' / ') ~ ' against ') if partners else 'Against ' }}{{ (state_attr(e, 'opponents') or []) | join(' / ') }}
+        {%- endif %}
+        {%- if state_attr(e, 'venue') %}
+        {{ state_attr(e, 'venue') }}
+        {%- endif %}
+        {%- else %}No match planned yet.{% endif %}
+    - type: heading
+      heading: Tournament entries
+      heading_style: subtitle
+    - type: markdown
+      content: |-
+        {%- for x in state_attr('sensor.sam_de_vries_tournament_entries', 'entries') or [] %}
+        **{{ x.tournament }}** · {{ as_datetime(x.start).strftime('%-d-%-m') }}{% if x.end and x.end != x.start %} to {{ as_datetime(x.end).strftime('%-d-%-m') }}{% endif %}
+        {{ x.events | join(', ') }}{% if x.status %} · {{ x.status }}{% endif %}{% if x.priority %} · preference {{ x.priority }}{% endif %}
+        {%- else %}
+        No entries.
+        {%- endfor %}
     - type: heading
       heading: Last match
       heading_style: subtitle

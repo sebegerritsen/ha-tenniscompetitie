@@ -113,6 +113,9 @@
       "next_match": {
         "name": "Next match"
       },
+      "tournament_entries": {
+        "name": "Tournament entries"
+      },
       "competition_position": {
         "name": "Competition position"
       },

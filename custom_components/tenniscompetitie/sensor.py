@@ -115,7 +115,7 @@ def _match_attrs(match: Match | None) -> dict[str, Any] | None:
 
 
 def _last_match(data: PlayerData, now: datetime) -> Match | None:
-    return data.last_match(now.astimezone(NL_TZ).date())
+    return data.last_match(_today(now))
 
 
 def _next_match(data: PlayerData, now: datetime) -> tuple[datetime, dict[str, Any]] | None:
@@ -188,6 +188,28 @@ def _competition_position(data: PlayerData, _now: datetime) -> int | None:
     if competition is None or not competition.teams:
         return None
     return competition.teams[0].position
+
+
+def _today(now: datetime) -> date:
+    return now.astimezone(NL_TZ).date()
+
+
+def _entries_attrs(data: PlayerData, now: datetime) -> dict[str, Any]:
+    return {
+        "entries": [
+            {
+                "tournament": entry.name,
+                "location": entry.location,
+                "start": _iso(entry.start),
+                "end": _iso(entry.end),
+                "kind": entry.kind,
+                "events": [name for name, _path in entry.events],
+                "status": entry.status,
+                "priority": entry.priority,
+            }
+            for entry in data.relevant_entries(_today(now))
+        ]
+    }
 
 
 def _ranking_attrs(data: PlayerData, _now: datetime) -> dict[str, Any] | None:
@@ -271,6 +293,14 @@ SENSORS: tuple[KnltbSensorDescription, ...] = (
         device_class=SensorDeviceClass.TIMESTAMP,
         value_fn=lambda data, now: found[0] if (found := _next_match(data, now)) else None,
         attrs_fn=lambda data, now: found[1] if (found := _next_match(data, now)) else None,
+    ),
+    KnltbSensorDescription(
+        key="tournament_entries",
+        translation_key="tournament_entries",
+        value_fn=lambda data, now: len(data.relevant_entries(_today(now))),
+        attrs_fn=_entries_attrs,
+        # Only the logged-in member's own entries are visible.
+        exists_fn=lambda data: data.entries is not None,
     ),
     KnltbSensorDescription(
         key="competition_position",

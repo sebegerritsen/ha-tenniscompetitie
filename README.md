@@ -22,16 +22,22 @@ partner. Per player you get a device with:
 | **Matches won this year** / **Matches lost this year** | a number | singles, doubles and mixed separately, career totals, win percentage |
 | **Last result** | won or lost | the last five results with their dates |
 | **Last match** | its date | tournament or competition, round, opponents, partner, score, venue, duration |
-| **Next match** | its start time | the next match of the player's competition teams or a planned tournament match |
+| **Next match** | its start time | the next match: of the player's competition teams, or a planned match in an entered tournament (round, draw, partner, opponents, venue) |
+| **Tournament entries** | the number of upcoming entries | per tournament: dates, location, events, status (*Ingeschreven*, *Geaccepteerd*, …) and the Junior Tour preference; only for the account's own player |
 | **Competition position** | the team's position in its pool | competition, team, category and class, played, points, all the player's teams, the player's win-loss |
 | **Ranking** | position in the first ranking list | list and category, best position, points, the other lists the player is in |
-| **Matches** (calendar) | on during a match | the player's competition team matches (with start times) and tournament matches |
+| **Matches** (calendar) | on during a match | the player's competition team matches and tournament matches (with start times once planned), and entered tournaments as all-day blocks until their matches are known |
 
 - Lower is better for playing strengths (1 is the best). The *trend* is `up` when next season's
   playing strength is better than the current one.
 - Competition team matches last 5 hours in the calendar and tournament matches 2 hours (the site
   gives start times only); tournament matches without a time are all-day events.
 - Early in the year, before the new competitions start, last year's competitions are shown.
+- **Planned tournament matches** are not on a player's profile until they have been played. They
+  are on the tournament's own pages, which the integration finds through the account's entries
+  (*Mijn inschrijvingen*), for tournaments that are running or start within 14 days; during a
+  tournament it updates every 30 minutes. Entries are only visible to the member who logged in, so
+  for other followed players the calendar has their competition matches but not their tournaments.
 - Dutch and English.
 
 ## How it works, and the catch

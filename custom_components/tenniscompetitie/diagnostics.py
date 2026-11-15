@@ -45,6 +45,11 @@ def _summary(data: PlayerData | None) -> dict[str, Any] | None:
             for team in data.teams
         ],
         "competition_matches": len(data.competition_matches),
+        "entries": None if data.entries is None else len(data.entries),
+        "entered_tournament_matches": len(data.tournament_matches),
+        "entered_tournament_matches_planned": sum(
+            1 for m in data.tournament_matches if m.won is None
+        ),
         "parse_failures": sorted(data.parse_failures),
     }
 

@@ -113,6 +113,9 @@
       "next_match": {
         "name": "Volgende wedstrijd"
       },
+      "tournament_entries": {
+        "name": "Toernooi-inschrijvingen"
+      },
       "competition_position": {
         "name": "Positie in de competitie"
       },

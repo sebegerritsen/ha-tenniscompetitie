@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 import json
 
 from freezegun.api import FrozenDateTimeFactory
@@ -34,6 +34,7 @@ from .conftest import (
     URL_PROFILE,
     URL_RATING,
     load_fixture,
+    mock_entries,
     mock_login,
 )
 
@@ -234,6 +235,7 @@ async def test_rating_page_unreadable(
     """A rating page that cannot be read leaves the rest working, with a repair."""
     freezer.move_to(NOW)
     mock_login(aioclient_mock)
+    mock_entries(aioclient_mock)
     aioclient_mock.get(URL_RATING, text=load_fixture("profile.html").replace("Enkel", "X"))
     aioclient_mock.get(URL_LEAGUES, text=load_fixture("leagues_empty.html"))
     aioclient_mock.get(f"{URL_LEAGUES}/2025", text=load_fixture("leagues_empty.html"))
@@ -252,6 +254,7 @@ async def test_rating_page_unreadable(
     # Fixed: the repair goes away with the next update.
     aioclient_mock.clear_requests()
     mock_login(aioclient_mock)
+    mock_entries(aioclient_mock)
     aioclient_mock.get(URL_RATING, text=load_fixture("rating.html"))
     aioclient_mock.get(URL_LEAGUES, text=load_fixture("leagues_empty.html"))
     aioclient_mock.get(f"{URL_LEAGUES}/2025", text=load_fixture("leagues_empty.html"))
@@ -272,6 +275,7 @@ async def test_last_year_competitions(
     """Without competitions this year, last year's are shown."""
     freezer.move_to("2027-01-20T08:00:00+00:00")
     mock_login(aioclient_mock)
+    mock_entries(aioclient_mock)
     aioclient_mock.get(URL_RATING, text=load_fixture("rating.html"))
     aioclient_mock.get(f"{URL_LEAGUES}/2026", text=load_fixture("leagues.html"))
     aioclient_mock.get(URL_LEAGUES, text=load_fixture("leagues_empty.html"))
@@ -321,3 +325,51 @@ async def test_unload(hass: HomeAssistant, loaded: MockConfigEntry) -> None:
     """The account unloads."""
     assert await hass.config_entries.async_unload(loaded.entry_id)
     assert loaded.state is ConfigEntryState.NOT_LOADED
+
+
+async def test_entries_and_planned_matches(hass: HomeAssistant, loaded: MockConfigEntry) -> None:
+    """The account's own player gets its entries and planned matches of entered tournaments."""
+    entries = hass.states.get(f"{PREFIX}_tournament_entries")
+    assert entries.state == "2"  # the running tournament and the pending Junior Tour week
+    assert [entry["tournament"] for entry in entries.attributes["entries"]] == [
+        "Najaarstoernooi Teststad 2026",
+        "JT Voorbeeldpark Brons t/m 16",
+    ]
+    assert entries.attributes["entries"][1]["priority"] == 1
+
+    coordinator = next(iter(loaded.runtime_data.coordinators.values()))
+    events = player_events(coordinator.data, date(2026, 11, 14))
+    planned = next(
+        event for event in events if "Ronde 1" in event.summary and "Teststad" in event.summary
+    )
+    assert planned.start == datetime.fromisoformat("2026-11-14T20:15:00+01:00")
+    assert planned.location == "TV Teststad"
+    # The Junior Tour week has no matches yet: one all-day block over its days.
+    block = next(event for event in events if event.summary.startswith("JT Voorbeeldpark"))
+    assert block.summary == "JT Voorbeeldpark Brons t/m 16 (Tennis JE 16 Brons)"
+    assert (block.start, block.end) == (date(2026, 12, 5), date(2026, 12, 7))
+    assert block.description == "Junioren Tour Brons\nVoorkeur 1"
+    # The running tournament has its matches, so no block for it.
+    assert not any(event.summary.startswith("Najaarstoernooi Teststad 2026 (") for event in events)
+
+
+async def test_entries_only_for_own_player(
+    hass: HomeAssistant, loaded: MockConfigEntry, mock_site: AiohttpClientMocker
+) -> None:
+    """Another followed player has no entries sensor (only the account holder's are visible)."""
+    other = f"https://mijnknltb.toernooi.nl/player-profile/{OTHER_ID}"
+    mock_site.get(other, text=load_fixture("profile.html"))
+    mock_site.get(f"{other}/Rating", text=load_fixture("rating.html"))
+    mock_site.get(f"{other}/leagues", text=load_fixture("leagues.html"))
+    hass.config_entries.async_add_subentry(
+        loaded,
+        ConfigSubentry(
+            data={CONF_PROFILE_ID: OTHER_ID, CONF_NAME: "Robin de Vries", CONF_CLUB: None},
+            subentry_type=SUBENTRY_PLAYER,
+            title="Robin de Vries",
+            unique_id=OTHER_ID,
+        ),
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(f"{PREFIX}_tournament_entries") is not None
+    assert hass.states.get("sensor.robin_de_vries_tournament_entries") is None

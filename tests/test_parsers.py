@@ -9,15 +9,19 @@ import pytest
 from custom_components.tenniscompetitie.models import NL_TZ, Discipline, RecordType, Trend, WinLoss
 from custom_components.tenniscompetitie.parsers import (
     KnltbParseError,
+    find_tournament_player,
     is_logged_in,
     login_token,
     own_profile_id,
     parse_competition_matches,
     parse_competitions,
+    parse_entries,
     parse_profile,
     parse_rating_page,
     parse_search,
     parse_team_page,
+    parse_tournament_matches,
+    same_person,
 )
 
 from .conftest import OWN_ID, load_fixture
@@ -263,3 +267,79 @@ def test_rating_page_without_ratings() -> None:
     html = load_fixture("profile.html")  # has the header but no DSS blocks
     with pytest.raises(KnltbParseError):
         parse_rating_page(html)
+
+
+def test_entries() -> None:
+    """The account's entries: open tournaments with event links, Junior Tour preferences."""
+    entries = {entry.name: entry for entry in parse_entries(load_fixture("entries.html"))}
+    assert list(entries) == [
+        "JT Voorbeeldpark Brons t/m 16",
+        "Najaarstoernooi Teststad 2026",
+        "JT Brons Proefstad",
+        "JT Brons Oefendorp",
+    ]
+    running = entries["Najaarstoernooi Teststad 2026"]
+    assert running.tournament_id == "00000000-0000-4000-8000-0000000000b3"
+    assert running.location == "TV Teststad | Teststad"
+    assert (running.start, running.end) == (date(2026, 11, 12), date(2026, 11, 22))
+    assert running.kind == "Open toernooi"
+    assert running.events == (
+        ("Tennis GD6", "/sport/event.aspx?id=00000000-0000-4000-8000-0000000000b3&event=6"),
+    )
+    assert (running.status, running.accepted, running.priority) == ("Ingeschreven", True, None)
+
+    pending = entries["JT Voorbeeldpark Brons t/m 16"]
+    assert pending.kind == "Junioren Tour Brons"
+    assert pending.events == (("Tennis JE 16 Brons", None),)
+    assert (pending.status, pending.accepted, pending.priority) == (None, None, 1)
+    assert entries["JT Brons Proefstad"].accepted is True
+    refused = entries["JT Brons Oefendorp"]
+    assert (refused.status, refused.accepted, refused.priority) == ("Niet geaccepteerd", False, 2)
+
+    today = date(2026, 11, 14)
+    assert running.is_relevant(today)
+    assert pending.is_relevant(today)
+    assert not entries["JT Brons Proefstad"].is_relevant(today)  # over
+    assert not refused.is_relevant(date(2026, 7, 1))  # not accepted
+
+
+def test_entries_empty_year() -> None:
+    """A year loaded on its own may be empty; a page without an entry list raises."""
+    assert parse_entries(load_fixture("entries_partial.html"), partial=True) == []
+    with pytest.raises(KnltbParseError):
+        parse_entries(load_fixture("home.html"))
+
+
+def test_tournament_player_link() -> None:
+    """The player's page in a tournament is found by name on an event page."""
+    html = load_fixture("tournament_event.html")
+    assert (
+        find_tournament_player(html, "sam de vries")
+        == "/sport/player.aspx?id=00000000-0000-4000-8000-0000000000b3&player=3234"
+    )
+    assert find_tournament_player(html, "Iemand Anders") is None
+
+
+def test_tournament_matches() -> None:
+    """Planned matches on the player's tournament page: time, venue, draw, sides by name."""
+    first, second = parse_tournament_matches(
+        load_fixture("tournament_player.html"), "Najaarstoernooi Teststad 2026", "Sam de Vries"
+    )
+    assert (first.kind, first.event, first.round, first.draw) == (
+        "tournament",
+        "Najaarstoernooi Teststad 2026",
+        "Ronde 1",
+        "Tennis GD6 - Groep B",
+    )
+    assert first.start == datetime(2026, 11, 14, 20, 15, tzinfo=NL_TZ)
+    assert first.venue == "TV Teststad"
+    assert first.won is None
+    assert first.partners == ("Kim Smit",)
+    assert first.opponents == ("Bram Dekker [2]", "Fien Dekker")
+    assert (second.day, second.start, second.opponents) == (None, None, ("Ton Bos", "Lies Bos"))
+
+
+def test_same_person_ignores_seeding() -> None:
+    """A seeding after a name does not make it another player."""
+    assert same_person("Sam de Vries [1]", "sam de vries")
+    assert not same_person("Sam de Vries", "Sam de Vriesema")

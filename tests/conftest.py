@@ -47,6 +47,11 @@ URL_TEAM_1 = f"{BASE_URL}/league/{LEAGUE}/team/1187"
 URL_TEAM_2 = f"{BASE_URL}/league/{LEAGUE}/team/353"
 URL_LEAGUE_PLAYER = f"{BASE_URL}/league/{LEAGUE}/player/6001"
 URL_SEARCH = f"{BASE_URL}/find/player"
+TOURNAMENT = "00000000-0000-4000-8000-0000000000b3"
+URL_ENTRIES = f"{BASE_URL}/user/entries"
+URL_ENTRIES_NEXT_YEAR = f"{BASE_URL}/user/entries/GetUserEntryListByYear/2027"
+URL_EVENT = f"{BASE_URL}/sport/event.aspx?id={TOURNAMENT}&event=6"
+URL_TOURNAMENT_PLAYER = f"{BASE_URL}/sport/player.aspx?id={TOURNAMENT}&player=3234"
 
 
 def load_fixture(name: str) -> str:
@@ -103,11 +108,20 @@ def mock_login(aioclient_mock: AiohttpClientMocker, *, ok: bool = True) -> None:
     aioclient_mock.post(URL_LOGIN, text=load_fixture("home.html" if ok else "login_failed.html"))
 
 
+def mock_entries(aioclient_mock: AiohttpClientMocker) -> None:
+    """Answer the account's entries and the entered tournament's pages."""
+    aioclient_mock.get(URL_HOME, text=load_fixture("home.html"))
+    aioclient_mock.get(URL_ENTRIES_NEXT_YEAR, text=load_fixture("entries_partial.html"))
+    aioclient_mock.get(URL_ENTRIES, text=load_fixture("entries.html"))
+    aioclient_mock.get(URL_EVENT, text=load_fixture("tournament_event.html"))
+    aioclient_mock.get(URL_TOURNAMENT_PLAYER, text=load_fixture("tournament_player.html"))
+
+
 @pytest.fixture
 def mock_site(aioclient_mock: AiohttpClientMocker) -> AiohttpClientMocker:
     """Answer every page the integration reads, as a logged-in member."""
     mock_login(aioclient_mock)
-    aioclient_mock.get(URL_HOME, text=load_fixture("home.html"))
+    mock_entries(aioclient_mock)
     aioclient_mock.get(URL_RATING, text=load_fixture("rating.html"))
     aioclient_mock.get(URL_LEAGUES, text=load_fixture("leagues.html"))
     aioclient_mock.get(URL_PROFILE, text=load_fixture("profile.html"))

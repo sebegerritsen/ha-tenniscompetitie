@@ -92,6 +92,21 @@ What `custom_components/tenniscompetitie/parsers.py` reads (tested against anony
 - **Search** (`/find/player?q=<name>`): `a.media__link[href^="/player-profile/"]` per player, with the
   member number in `.media__title-aside` and `"Club | TOWN"` in `.media__subheading`. The account's own
   profile is the first `a.dropdown-list__link` to `/player-profile/<guid>` in the account menu.
+- **Entries** (`/user/entries`; only the logged-in member's own; another year as a page part via
+  `/user/entries/GetUserEntryListByYear/<year>`): per tournament an `li` with the media block (name in
+  the link's `title`, `/sport/tournament?id=<guid>`, location, `<time>` start and end, a `.tag-duo` such
+  as *Open toernooi* or *Junioren Tour Brons*), then a `.module-divider` with the events entered: open
+  tournaments link `/sport/event.aspx?id=<guid>&event=<n>` and show the status as a button in
+  `.media__aside` (*Ingeschreven*); Junior Tour entries are grouped per week, link
+  `/tournament/<guid>/entry|acceptance/<n>` and show `.priority-status-text` (*Geaccepteerd*, *Niet
+  geaccepteerd*, or nothing yet) and `.priority-status` (the preference).
+- **Planned tournament matches** are not on the player's profile until played. They are on the player's
+  page in the tournament, `/sport/player.aspx?id=<guid>&player=<n>` (redirects to
+  `/tournament/<guid>/player/<n>`): the same `div.match` component, with the round and the draw
+  (`a[href*=draw]`) in the header and `"zo 15-11-2026 20:15"` plus the venue in the footer (and a
+  calendar-export link). No result tag yet, so the player's side is found by name; names may carry a
+  seeding (`"[2]"`). `<n>` differs per tournament: find it on the event page (the entrants table links
+  `player.aspx?…&player=<n>` with the names). The tournament's `players` page loads its list by script.
 - **Dates**: `<time datetime="YYYY-MM-DD HH:MM">` (Dutch local time), else `d-m-yyyy` in text.
 - Numbers use a decimal comma.
 

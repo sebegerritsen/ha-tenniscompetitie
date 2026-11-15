@@ -12,6 +12,7 @@ from collections.abc import Iterable
 from dataclasses import replace
 from datetime import date, datetime
 import re
+from urllib.parse import parse_qs, urlsplit
 
 from bs4 import BeautifulSoup, Tag
 
@@ -20,6 +21,7 @@ from .models import (
     Competition,
     CompetitionTeam,
     Discipline,
+    Entry,
     FormResult,
     Match,
     PlayerRef,
@@ -45,6 +47,8 @@ _NUMBER = re.compile(r"-?\d+(?:[.,]\d+)?")
 _WIN_LOSS = re.compile(r"(\d+)\s*[-/]\s*(\d+)")
 _DURATION = re.compile(r"^(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?$")
 _SPACES = re.compile(r"\s+")
+# A seeding after a name in a draw: "Sam de Vries [2]".
+_SEED = re.compile(r"\s*\[\d+\]\s*$")
 
 RECORD_TABS = {
     "tabStatsTotal": RecordType.TOTAL,
@@ -120,6 +124,16 @@ def _time_element(node: Tag | None) -> datetime | None:
 
 def _has_class(node: Tag, name: str) -> bool:
     return name in (node.get("class") or [])
+
+
+def name_key(name: str) -> str:
+    """Return a name for comparing: without a seeding, in lower case."""
+    return _SEED.sub("", name).strip().casefold()
+
+
+def same_person(name: str, other: str) -> bool:
+    """Return whether two names are the same player (ignoring case and a seeding)."""
+    return name_key(name) == name_key(other)
 
 
 def _discipline(label: str) -> Discipline | None:
@@ -366,7 +380,7 @@ def parse_match(
             (
                 i
                 for i, row in enumerate(rows)
-                if player.casefold() in (name.casefold() for name in players(row))
+                if any(same_person(player, name) for name in players(row))
             ),
             None,
         )
@@ -387,10 +401,13 @@ def parse_match(
         note = leftover or None
 
     round_name = None
+    draw = None
     duration = None
     for item in node.select(".match__header-title-item"):
         text = _text(item)
-        if (minutes := _duration(text)) is not None:
+        if item.select_one('a[href*="draw"]') is not None:
+            draw = text or None
+        elif (minutes := _duration(text)) is not None:
             duration = minutes
         elif round_name is None and text:
             round_name = text
@@ -416,7 +433,7 @@ def parse_match(
     return Match(
         kind=kind,
         event=event,
-        draw=None,
+        draw=draw,
         round=round_name,
         day=day,
         start=start,
@@ -435,7 +452,7 @@ def parse_match(
 def _partners(players: tuple[str, ...], player: str | None) -> tuple[str, ...]:
     """Return the players on the followed player's side other than the player."""
     if player:
-        others = tuple(name for name in players if name.casefold() != player.casefold())
+        others = tuple(name for name in players if not same_person(name, player))
         if len(others) < len(players):
             return others
     return players[1:]
@@ -466,7 +483,7 @@ def _tournaments(soup: BeautifulSoup, player: str | None = None) -> Iterable[Tou
                 if (
                     match := parse_match(node, kind="tournament", event=name, player=player)
                 ) is not None:
-                    matches.append(replace(match, draw=_text(draw) or None))
+                    matches.append(replace(match, draw=match.draw or _text(draw) or None))
         yield Tournament(
             name=name,
             location=location,
@@ -652,4 +669,96 @@ def parse_competition_matches(
                     start=team_match.start if team_match else match.start,
                 )
             )
+    return matches
+
+
+def _tournament_id(href: str) -> str | None:
+    values = parse_qs(urlsplit(href).query).get("id")
+    return values[0].lower() if values else None
+
+
+def _entry_status(item: Tag) -> tuple[str | None, bool | None]:
+    """Return an entry's status text and whether it stands (None: not decided yet)."""
+    tag = item.select_one(".priority-status-text")
+    if tag is None and (button := item.select_one(".media__aside .btn")) is not None:
+        tag = button
+    if tag is None:
+        return None, None
+    status = _text(tag) or str(tag.get("title") or "") or None
+    if status is None:
+        return None, None
+    lowered = status.casefold()
+    refused = ("niet ", "not ", "afgemeld", "teruggetrokken", "withdrawn", "afgewezen", "rejected")
+    return status, not any(word in lowered for word in refused)
+
+
+def parse_entries(html: str, *, partial: bool = False) -> list[Entry]:
+    """Parse the account's tournament entries (`/user/entries`; only the logged-in member's).
+
+    `partial` is for a year loaded on its own (no page around it), which may be empty.
+    """
+    soup = _soup(html)
+    entries: dict[str, Entry] = {}
+    for link in soup.select('h4.media__title a[href*="/sport/tournament?id="]'):
+        tournament_id = _tournament_id(str(link["href"]))
+        item = link.find_parent("li")
+        media = link.find_parent(class_="media")
+        if tournament_id is None or item is None or media is None:
+            continue
+        times = media.select(".media__subheading time")
+        location = next(
+            (
+                _text(heading)
+                for heading in media.select(".media__subheading")
+                if heading.find("time") is None and _text(heading)
+            ),
+            None,
+        )
+        events: list[tuple[str, str | None]] = []
+        for event in item.select(".module-divider a"):
+            href = str(event.get("href") or "")
+            if name := _text(event):
+                path = href if "event.aspx" in href else None
+                if path and not path.startswith("/"):
+                    path = f"/sport/{path}"
+                events.append((name, path))
+        status, accepted = _entry_status(item)
+        start = _time_element(times[0]) if times else None
+        end = _time_element(times[-1]) if times else None
+        entries[tournament_id] = Entry(
+            tournament_id=tournament_id,
+            name=str(link.get("title") or "") or _text(link),
+            location=location,
+            start=start.date() if start else None,
+            end=end.date() if end else None,
+            kind=_text(media.select_one(".tag-duo")) or None,
+            events=tuple(events),
+            status=status,
+            accepted=accepted,
+            priority=_int(_text(item.select_one(".priority-status"))),
+        )
+    if not entries and not partial and soup.find(id="js-year-content") is None:
+        raise KnltbParseError("entries", "no entry list")
+    return list(entries.values())
+
+
+def find_tournament_player(html: str, name: str) -> str | None:
+    """Return the path of a player's page in a tournament, from an event or draw page."""
+    for link in _soup(html).select('a[href*="player.aspx"]'):
+        if same_person(_text(link), name):
+            href = str(link["href"])
+            return href if href.startswith("/") else f"/sport/{href}"
+    return None
+
+
+def parse_tournament_matches(html: str, tournament: str, player: str | None) -> list[Match]:
+    """Parse a player's matches on their page in a tournament, planned ones included."""
+    matches = []
+    for node in _soup(html).select("div.match"):
+        if _has_class(node, "match--team-match"):
+            continue
+        if (
+            match := parse_match(node, kind="tournament", event=tournament, player=player)
+        ) is not None:
+            matches.append(match)
     return matches
